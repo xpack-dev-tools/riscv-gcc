@@ -422,7 +422,7 @@ show_expr (gfc_expr *p)
       switch (p->ts.type)
 	{
 	case BT_INTEGER:
-	  mpz_out_str (stdout, 10, p->value.integer);
+	  mpz_out_str (dumpfile, 10, p->value.integer);
 
 	  if (p->ts.kind != gfc_default_integer_kind)
 	    fprintf (dumpfile, "_%d", p->ts.kind);
@@ -436,7 +436,7 @@ show_expr (gfc_expr *p)
 	  break;
 
 	case BT_REAL:
-	  mpfr_out_str (stdout, 10, 0, p->value.real, GFC_RND_MODE);
+	  mpfr_out_str (dumpfile, 10, 0, p->value.real, GFC_RND_MODE);
 	  if (p->ts.kind != gfc_default_real_kind)
 	    fprintf (dumpfile, "_%d", p->ts.kind);
 	  break;
@@ -449,14 +449,14 @@ show_expr (gfc_expr *p)
 	case BT_COMPLEX:
 	  fputs ("(complex ", dumpfile);
 
-	  mpfr_out_str (stdout, 10, 0, mpc_realref (p->value.complex),
+	  mpfr_out_str (dumpfile, 10, 0, mpc_realref (p->value.complex),
 			GFC_RND_MODE);
 	  if (p->ts.kind != gfc_default_complex_kind)
 	    fprintf (dumpfile, "_%d", p->ts.kind);
 
 	  fputc (' ', dumpfile);
 
-	  mpfr_out_str (stdout, 10, 0, mpc_imagref (p->value.complex),
+	  mpfr_out_str (dumpfile, 10, 0, mpc_imagref (p->value.complex),
 			GFC_RND_MODE);
 	  if (p->ts.kind != gfc_default_complex_kind)
 	    fprintf (dumpfile, "_%d", p->ts.kind);
@@ -573,7 +573,7 @@ show_expr (gfc_expr *p)
 
 	default:
 	  gfc_internal_error
-	    ("show_expr(): Bad intrinsic in expression!");
+	    ("show_expr(): Bad intrinsic in expression");
 	}
 
       show_expr (p->value.op.op1);
@@ -856,6 +856,9 @@ show_symbol (gfc_symbol *sym)
   len = strlen (sym->name);
   for (i=len; i<12; i++)
     fputc(' ', dumpfile);
+
+  if (sym->binding_label)
+      fprintf (dumpfile,"|| binding_label: '%s' ", sym->binding_label);
 
   ++show_level;
 
@@ -1283,6 +1286,7 @@ show_omp_clauses (gfc_omp_clauses *omp_clauses)
 	case OMP_DEFAULT_PRIVATE: type = "PRIVATE"; break;
 	case OMP_DEFAULT_SHARED: type = "SHARED"; break;
 	case OMP_DEFAULT_FIRSTPRIVATE: type = "FIRSTPRIVATE"; break;
+	case OMP_DEFAULT_PRESENT: type = "PRESENT"; break;
 	default:
 	  gcc_unreachable ();
 	}

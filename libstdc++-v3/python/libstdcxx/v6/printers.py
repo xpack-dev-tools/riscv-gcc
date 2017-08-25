@@ -99,7 +99,7 @@ def find_type(orig, name):
             raise ValueError("Cannot find type %s::%s" % (str(orig), name))
         typ = field.type
 
-_versioned_namespace = '__7::'
+_versioned_namespace = '__8::'
 
 # Test if a type is a given template instantiation.
 def is_specialization_of(type, template_name):
@@ -1555,15 +1555,15 @@ def build_libstdcxx_dictionary ():
     libstdcxx_printer.add_container('std::', 'forward_list',
                                     StdForwardListPrinter)
 
-    libstdcxx_printer.add_version('std::tr1::', 'shared_ptr', SharedPointerPrinter)
-    libstdcxx_printer.add_version('std::tr1::', 'weak_ptr', SharedPointerPrinter)
-    libstdcxx_printer.add_version('std::tr1::', 'unordered_map',
+    libstdcxx_printer.add_version('std::', 'tr1::shared_ptr', SharedPointerPrinter)
+    libstdcxx_printer.add_version('std::', 'tr1::weak_ptr', SharedPointerPrinter)
+    libstdcxx_printer.add_version('std::', 'tr1::unordered_map',
                                   Tr1UnorderedMapPrinter)
-    libstdcxx_printer.add_version('std::tr1::', 'unordered_set',
+    libstdcxx_printer.add_version('std::', 'tr1::unordered_set',
                                   Tr1UnorderedSetPrinter)
-    libstdcxx_printer.add_version('std::tr1::', 'unordered_multimap',
+    libstdcxx_printer.add_version('std::', 'tr1::unordered_multimap',
                                   Tr1UnorderedMapPrinter)
-    libstdcxx_printer.add_version('std::tr1::', 'unordered_multiset',
+    libstdcxx_printer.add_version('std::', 'tr1::unordered_multiset',
                                   Tr1UnorderedSetPrinter)
 
     # These are the C++11 printer registrations for -D_GLIBCXX_DEBUG cases.

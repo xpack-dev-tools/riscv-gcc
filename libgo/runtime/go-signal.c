@@ -91,7 +91,7 @@ sigtramp(int sig, siginfo_t *info, void *context)
 
 	__splitstack_getcontext(&stack_context[0]);
 
-	stack = __splitstack_find_context(&gp->m->gsignal->stackcontext[0],
+	stack = __splitstack_find_context((void*)(&gp->m->gsignal->stackcontext[0]),
 					  &stack_size, &next_segment,
 					  &next_sp, &initial_sp);
 
@@ -126,7 +126,7 @@ sigtramp(int sig, siginfo_t *info, void *context)
 	// Set the split stack context so that the stack guards are
 	// checked correctly.
 
-	__splitstack_setcontext(&gp->m->gsignal->stackcontext[0]);
+	__splitstack_setcontext((void*)(&gp->m->gsignal->stackcontext[0]));
 
 	sigtrampgo(sig, info, context);
 
@@ -213,6 +213,16 @@ getSiginfo(siginfo_t *info, void *context __attribute__((unused)))
 #ifdef __i386__
   #ifdef __linux__
 	ret.sigpc = ((ucontext_t*)(context))->uc_mcontext.gregs[REG_EIP];
+  #endif
+#endif
+#ifdef __alpha__
+  #ifdef __linux__
+	ret.sigpc = ((ucontext_t*)(context))->uc_mcontext.sc_pc;
+  #endif
+#endif
+#ifdef __PPC__
+  #ifdef __linux__
+	ret.sigpc = ((ucontext_t*)(context))->uc_mcontext.regs->nip;
   #endif
 #endif
 

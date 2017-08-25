@@ -128,6 +128,7 @@ class Expression
     EXPRESSION_RECEIVE,
     EXPRESSION_TYPE_DESCRIPTOR,
     EXPRESSION_GC_SYMBOL,
+    EXPRESSION_PTRMASK_SYMBOL,
     EXPRESSION_TYPE_INFO,
     EXPRESSION_SLICE_INFO,
     EXPRESSION_SLICE_VALUE,
@@ -402,6 +403,13 @@ class Expression
   static Expression*
   make_gc_symbol(Type* type);
 
+  // Make an expression that evaluates to the address of a ptrmask
+  // symbol for TYPE.  For most types this will be the same as
+  // make_gc_symbol, but for larger types make_gc_symbol will return a
+  // gcprog while this will return a ptrmask.
+  static Expression*
+  make_ptrmask_symbol(Type* type);
+
   // Make an expression which evaluates to some characteristic of a
   // type.  These are only used for type descriptors, so there is no
   // location parameter.
@@ -413,7 +421,15 @@ class Expression
       TYPE_INFO_ALIGNMENT,
       // The required alignment of a value of the type when used as a
       // field in a struct.
-      TYPE_INFO_FIELD_ALIGNMENT
+      TYPE_INFO_FIELD_ALIGNMENT,
+      // The size of the prefix of a value of the type that contains
+      // all the pointers.  This is 0 for a type that contains no
+      // pointers.  It is always <= TYPE_INFO_SIZE.
+      TYPE_INFO_BACKEND_PTRDATA,
+      // Like TYPE_INFO_BACKEND_PTRDATA, but the ptrdata value that we
+      // want to store in a type descriptor.  They are the same for
+      // most types, but can differ for a type that uses a gcprog.
+      TYPE_INFO_DESCRIPTOR_PTRDATA
     };
 
   static Expression*
@@ -1774,6 +1790,10 @@ class Unary_expression : public Expression
     this->is_slice_init_ = true;
   }
 
+  // Call the address_taken method on the operand if necessary.
+  void
+  check_operand_address_taken(Gogo*);
+
   // Apply unary opcode OP to UNC, setting NC.  Return true if this
   // could be done, false if not.  On overflow, issues an error and
   // sets *ISSUED_ERROR.
@@ -2095,8 +2115,8 @@ class Call_expression : public Expression
   Call_expression(Expression* fn, Expression_list* args, bool is_varargs,
 		  Location location)
     : Expression(EXPRESSION_CALL, location),
-      fn_(fn), args_(args), type_(NULL), results_(NULL), call_(NULL),
-      call_temp_(NULL), expected_result_count_(0), is_varargs_(is_varargs),
+      fn_(fn), args_(args), type_(NULL), call_(NULL), call_temp_(NULL)
+    , expected_result_count_(0), is_varargs_(is_varargs),
       varargs_are_lowered_(false), types_are_determined_(false),
       is_deferred_(false), is_concurrent_(false), issued_error_(false),
       is_multi_value_arg_(false), is_flattened_(false)
@@ -2124,11 +2144,11 @@ class Call_expression : public Expression
   size_t
   result_count() const;
 
-  // Return the temporary variable which holds result I.  This is only
-  // valid after the expression has been lowered, and is only valid
-  // for calls which return multiple results.
+  // Return the temporary variable that holds the results.  This is
+  // only valid after the expression has been lowered, and is only
+  // valid for calls which return multiple results.
   Temporary_statement*
-  result(size_t i) const;
+  results() const;
 
   // Set the number of results expected from this call.  This is used
   // when the call appears in a context that expects multiple results,
@@ -2267,10 +2287,10 @@ class Call_expression : public Expression
 
   Expression*
   interface_method_function(Interface_field_reference_expression*,
-			    Expression**);
+			    Expression**, Location);
 
   Bexpression*
-  set_results(Translate_context*, Bexpression*);
+  set_results(Translate_context*);
 
   // The function to call.
   Expression* fn_;
@@ -2279,9 +2299,6 @@ class Call_expression : public Expression
   Expression_list* args_;
   // The type of the expression, to avoid recomputing it.
   Type* type_;
-  // The list of temporaries which will hold the results if the
-  // function returns a tuple.
-  std::vector<Temporary_statement*>* results_;
   // The backend expression for the call, used for a call which returns a tuple.
   Bexpression* call_;
   // A temporary variable to store this call if the function returns a tuple.
@@ -2631,7 +2648,8 @@ class Array_index_expression : public Expression
   Array_index_expression(Expression* array, Expression* start,
 			 Expression* end, Expression* cap, Location location)
     : Expression(EXPRESSION_ARRAY_INDEX, location),
-      array_(array), start_(start), end_(end), cap_(cap), type_(NULL)
+      array_(array), start_(start), end_(end), cap_(cap), type_(NULL),
+      is_lvalue_(false)
   { }
 
   // Return the array.
@@ -2662,6 +2680,18 @@ class Array_index_expression : public Expression
   const Expression*
   end() const
   { return this->end_; }
+
+  // Return whether this array index expression appears in an lvalue
+  // (left hand side of assignment) context.
+  bool
+  is_lvalue() const
+  { return this->is_lvalue_; }
+
+  // Update this array index expression to indicate that it appears
+  // in a left-hand-side or lvalue context.
+  void
+  set_is_lvalue()
+  { this->is_lvalue_ = true; }
 
  protected:
   int
@@ -2730,6 +2760,8 @@ class Array_index_expression : public Expression
   Expression* cap_;
   // The type of the expression.
   Type* type_;
+  // Whether expr appears in an lvalue context.
+  bool is_lvalue_;
 };
 
 // A string index.  This is used for both indexing and slicing.
@@ -3181,6 +3213,9 @@ class Allocation_expression : public Expression
   void
   do_determine_type(const Type_context*)
   { }
+
+  void
+  do_check_types(Gogo*);
 
   Expression*
   do_copy();
@@ -4011,6 +4046,13 @@ class Numeric_constant
   To_unsigned_long
   to_unsigned_long(unsigned long* val) const;
 
+  // If the value can be expressed as an integer that describes the
+  // size of an object in memory, set *VAL and return true.
+  // Otherwise, return false.  Currently we use int64_t to represent a
+  // memory size, as in Type::backend_type_size.
+  bool
+  to_memory_size(int64_t* val) const;
+
   // If the value can be expressed as an int, return true and
   // initialize and set VAL.  This will return false for a value with
   // an explicit float or complex type, even if the value is integral.
@@ -4051,6 +4093,12 @@ class Numeric_constant
 
   To_unsigned_long
   mpfr_to_unsigned_long(const mpfr_t fval, unsigned long *val) const;
+
+  bool
+  mpz_to_memory_size(const mpz_t ival, int64_t* val) const;
+
+  bool
+  mpfr_to_memory_size(const mpfr_t fval, int64_t* val) const;
 
   bool
   check_int_type(Integer_type*, bool, Location);
