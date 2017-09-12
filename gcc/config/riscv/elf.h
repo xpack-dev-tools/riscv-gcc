@@ -24,7 +24,10 @@ along with GCC; see the file COPYING3.  If not see
 /* Link against Newlib libraries, because the ELF backend assumes Newlib.
    Handle the circular dependence between libc and libgloss. */
 #undef  LIB_SPEC
-#define LIB_SPEC "--start-group -lc -lgloss --end-group"
+// GNU MCU Eclipse
+// #define LIB_SPEC "--start-group -lc -lgloss --end-group"
+// The sequence is copied from arm-none-eabi, might not be needed.
+#define LIB_SPEC "--start-group -lgcc -lg -lc --end-group"
 
 #undef  STARTFILE_SPEC
 #define STARTFILE_SPEC "crt0%O%s crtbegin%O%s"
