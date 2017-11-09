@@ -358,10 +358,7 @@ update_profile_after_ifcombine (basic_block inner_cond_bb,
      outer_cond_bb->(outer_to_inner)->inner_cond_bb->(inner_taken)
      and probability of inner_not_taken updated.  */
 
-  outer_to_inner->count = outer_cond_bb->count;
   inner_cond_bb->count = outer_cond_bb->count;
-  inner_taken->count += outer2->count;
-  outer2->count = profile_count::zero ();
 
   inner_taken->probability = outer2->probability + outer_to_inner->probability
 			     * inner_taken->probability;
@@ -369,7 +366,6 @@ update_profile_after_ifcombine (basic_block inner_cond_bb,
 				 - inner_taken->probability;
 
   outer_to_inner->probability = profile_probability::always ();
-  inner_cond_bb->frequency = outer_cond_bb->frequency;
   outer2->probability = profile_probability::never ();
 }
 
@@ -560,7 +556,7 @@ ifcombine_ifandif (basic_block inner_cond_bb, bool inner_inv,
 	{
 	  tree t1, t2;
 	  gimple_stmt_iterator gsi;
-	  if (!LOGICAL_OP_NON_SHORT_CIRCUIT)
+	  if (!LOGICAL_OP_NON_SHORT_CIRCUIT || flag_sanitize_coverage)
 	    return false;
 	  /* Only do this optimization if the inner bb contains only the conditional. */
 	  if (!gsi_one_before_end_p (gsi_start_nondebug_after_labels_bb (inner_cond_bb)))

@@ -1175,11 +1175,17 @@ build_access_from_expr_1 (tree expr, gimple *stmt, bool write)
   else
     partial_ref = false;
 
+  if (storage_order_barrier_p (expr))
+    {
+      disqualify_base_of_expr (expr, "storage order barrier.");
+      return NULL;
+    }
+
   /* We need to dive through V_C_Es in order to get the size of its parameter
      and not the result type.  Ada produces such statements.  We are also
      capable of handling the topmost V_C_E but not any of those buried in other
      handled components.  */
-  if (TREE_CODE (expr) == VIEW_CONVERT_EXPR && !storage_order_barrier_p (expr))
+  if (TREE_CODE (expr) == VIEW_CONVERT_EXPR)
     expr = TREE_OPERAND (expr, 0);
 
   if (contains_view_convert_expr_p (expr))
@@ -1353,6 +1359,8 @@ build_accesses_from_assign (gimple *stmt)
       link->lacc = lacc;
       link->racc = racc;
       add_link_to_rhs (racc, link);
+      add_access_to_work_queue (racc);
+
       /* Let's delay marking the areas as written until propagation of accesses
 	 across link, unless the nature of rhs tells us that its data comes
 	 from elsewhere.  */
@@ -1534,19 +1542,20 @@ compare_access_positions (const void *a, const void *b)
 	       && TREE_CODE (f2->type) != COMPLEX_TYPE
 	       && TREE_CODE (f2->type) != VECTOR_TYPE)
 	return -1;
+      /* Put any integral type before any non-integral type.  When splicing, we
+	 make sure that those with insufficient precision and occupying the
+	 same space are not scalarized.  */
+      else if (INTEGRAL_TYPE_P (f1->type)
+	       && !INTEGRAL_TYPE_P (f2->type))
+	return -1;
+      else if (!INTEGRAL_TYPE_P (f1->type)
+	       && INTEGRAL_TYPE_P (f2->type))
+	return 1;
       /* Put the integral type with the bigger precision first.  */
       else if (INTEGRAL_TYPE_P (f1->type)
-	       && INTEGRAL_TYPE_P (f2->type))
+	       && INTEGRAL_TYPE_P (f2->type)
+	       && (TYPE_PRECISION (f2->type) != TYPE_PRECISION (f1->type)))
 	return TYPE_PRECISION (f2->type) - TYPE_PRECISION (f1->type);
-      /* Put any integral type with non-full precision last.  */
-      else if (INTEGRAL_TYPE_P (f1->type)
-	       && (TREE_INT_CST_LOW (TYPE_SIZE (f1->type))
-		   != TYPE_PRECISION (f1->type)))
-	return 1;
-      else if (INTEGRAL_TYPE_P (f2->type)
-	       && (TREE_INT_CST_LOW (TYPE_SIZE (f2->type))
-		   != TYPE_PRECISION (f2->type)))
-	return -1;
       /* Stabilize the sort.  */
       return TYPE_UID (f1->type) - TYPE_UID (f2->type);
     }
@@ -2047,6 +2056,11 @@ sort_and_splice_var_accesses (tree var)
       bool grp_partial_lhs = access->grp_partial_lhs;
       bool first_scalar = is_gimple_reg_type (access->type);
       bool unscalarizable_region = access->grp_unscalarizable_region;
+      bool bf_non_full_precision
+	= (INTEGRAL_TYPE_P (access->type)
+	   && TYPE_PRECISION (access->type) != access->size
+	   && TREE_CODE (access->expr) == COMPONENT_REF
+	   && DECL_BIT_FIELD (TREE_OPERAND (access->expr, 1)));
 
       if (first || access->offset >= high)
 	{
@@ -2094,6 +2108,22 @@ sort_and_splice_var_accesses (tree var)
 	     this combination of size and offset, the comparison function
 	     should have put the scalars first.  */
 	  gcc_assert (first_scalar || !is_gimple_reg_type (ac2->type));
+	  /* It also prefers integral types to non-integral.  However, when the
+	     precision of the selected type does not span the entire area and
+	     should also be used for a non-integer (i.e. float), we must not
+	     let that happen.  Normally analyze_access_subtree expands the type
+	     to cover the entire area but for bit-fields it doesn't.  */
+	  if (bf_non_full_precision && !INTEGRAL_TYPE_P (ac2->type))
+	    {
+	      if (dump_file && (dump_flags & TDF_DETAILS))
+		{
+		  fprintf (dump_file, "Cannot scalarize the following access "
+			   "because insufficient precision integer type was "
+			   "selected.\n  ");
+		  dump_access (dump_file, access, false);
+		}
+	      unscalarizable_region = true;
+	    }
 	  ac2->group_representative = access;
 	  j++;
 	}
@@ -2112,7 +2142,6 @@ sort_and_splice_var_accesses (tree var)
       access->grp_total_scalarization = total_scalarization;
       access->grp_partial_lhs = grp_partial_lhs;
       access->grp_unscalarizable_region = unscalarizable_region;
-      add_access_to_work_queue (access);
 
       *prev_acc_ptr = access;
       prev_acc_ptr = &access->next_grp;
@@ -2662,7 +2691,7 @@ propagate_subaccesses_across_link (struct access *lacc, struct access *racc)
 	    }
 	  else
 	    {
-	      if (rchild->grp_write && !lacc->grp_write)
+	      if (!lacc->grp_write)
 		{
 		  ret = true;
 		  subtree_mark_written_and_enqueue (lacc);
@@ -2706,6 +2735,8 @@ propagate_all_subaccesses (void)
       struct access *racc = pop_access_from_work_queue ();
       struct assign_link *link;
 
+      if (racc->group_representative)
+	racc= racc->group_representative;
       gcc_assert (racc->first_link);
 
       for (link = racc->first_link; link; link = link->next)

@@ -60,6 +60,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "langhooks.h"
 #include "value-prof.h"
 #include "builtins.h"
+#include "stringpool.h"
+#include "attribs.h"
 #include "asan.h"
 #include "cilk.h"
 #include "tree-chkp.h"
@@ -91,7 +93,7 @@ builtin_info_type builtin_info[(int)END_BUILTINS];
 /* Non-zero if __builtin_constant_p should be folded right away.  */
 bool force_folding_builtin_constant_p;
 
-static rtx c_readstr (const char *, machine_mode);
+static rtx c_readstr (const char *, scalar_int_mode);
 static int target_char_cast (tree, char *);
 static rtx get_memory_rtx (tree, tree);
 static int apply_args_size (void);
@@ -117,16 +119,16 @@ static rtx expand_builtin_va_end (tree);
 static rtx expand_builtin_va_copy (tree);
 static rtx expand_builtin_strcmp (tree, rtx);
 static rtx expand_builtin_strncmp (tree, rtx, machine_mode);
-static rtx builtin_memcpy_read_str (void *, HOST_WIDE_INT, machine_mode);
+static rtx builtin_memcpy_read_str (void *, HOST_WIDE_INT, scalar_int_mode);
 static rtx expand_builtin_memchr (tree, rtx);
 static rtx expand_builtin_memcpy (tree, rtx);
 static rtx expand_builtin_memcpy_with_bounds (tree, rtx);
-static rtx expand_builtin_memcpy_args (tree, tree, tree, rtx, tree);
+static rtx expand_builtin_memory_copy_args (tree dest, tree src, tree len,
+					    rtx target, tree exp, int endp);
 static rtx expand_builtin_memmove (tree, rtx);
-static rtx expand_builtin_mempcpy (tree, rtx, machine_mode);
-static rtx expand_builtin_mempcpy_with_bounds (tree, rtx, machine_mode);
-static rtx expand_builtin_mempcpy_args (tree, tree, tree, rtx,
-					machine_mode, int, tree);
+static rtx expand_builtin_mempcpy (tree, rtx);
+static rtx expand_builtin_mempcpy_with_bounds (tree, rtx);
+static rtx expand_builtin_mempcpy_args (tree, tree, tree, rtx, tree, int);
 static rtx expand_builtin_strcat (tree, rtx);
 static rtx expand_builtin_strcpy (tree, rtx);
 static rtx expand_builtin_strcpy_args (tree, tree, rtx);
@@ -134,7 +136,7 @@ static rtx expand_builtin_stpcpy (tree, rtx, machine_mode);
 static rtx expand_builtin_stpncpy (tree, rtx);
 static rtx expand_builtin_strncat (tree, rtx);
 static rtx expand_builtin_strncpy (tree, rtx);
-static rtx builtin_memset_gen_str (void *, HOST_WIDE_INT, machine_mode);
+static rtx builtin_memset_gen_str (void *, HOST_WIDE_INT, scalar_int_mode);
 static rtx expand_builtin_memset (tree, rtx, machine_mode);
 static rtx expand_builtin_memset_with_bounds (tree, rtx, machine_mode);
 static rtx expand_builtin_memset_args (tree, tree, tree, rtx, machine_mode, tree);
@@ -281,7 +283,7 @@ get_object_alignment_2 (tree exp, unsigned int *alignp,
       exp = DECL_INITIAL (exp);
       align = TYPE_ALIGN (TREE_TYPE (exp));
       if (CONSTANT_CLASS_P (exp))
-	align = (unsigned) CONSTANT_ALIGNMENT (exp, align);
+	align = targetm.constant_alignment (exp, align);
 
       known_alignment = true;
     }
@@ -357,7 +359,7 @@ get_object_alignment_2 (tree exp, unsigned int *alignp,
          wrapped inside a CONST_DECL.  */
       align = TYPE_ALIGN (TREE_TYPE (exp));
       if (CONSTANT_CLASS_P (exp))
-	align = (unsigned) CONSTANT_ALIGNMENT (exp, align);
+	align = targetm.constant_alignment (exp, align);
 
       known_alignment = true;
     }
@@ -667,7 +669,7 @@ c_strlen (tree src, int only_value)
    GET_MODE_BITSIZE (MODE) bits from string constant STR.  */
 
 static rtx
-c_readstr (const char *str, machine_mode mode)
+c_readstr (const char *str, scalar_int_mode mode)
 {
   HOST_WIDE_INT ch;
   unsigned int i, j;
@@ -898,7 +900,7 @@ expand_builtin_setjmp_receiver (rtx receiver_label)
 	 to the underlying register (fp in this case) that makes
 	 the original assignment true.
 	 So the following insn will actually be decrementing fp by
-	 STARTING_FRAME_OFFSET.  */
+	 TARGET_STARTING_FRAME_OFFSET.  */
       emit_move_insn (virtual_stack_vars_rtx, hard_frame_pointer_rtx);
 
       /* Restoring the frame pointer also modifies the hard frame pointer.
@@ -1197,6 +1199,7 @@ void
 expand_builtin_update_setjmp_buf (rtx buf_addr)
 {
   machine_mode sa_mode = STACK_SAVEAREA_MODE (SAVE_NONLOCAL);
+  buf_addr = convert_memory_address (Pmode, buf_addr);
   rtx stack_save
     = gen_rtx_MEM (sa_mode,
 		   memory_address
@@ -1606,7 +1609,7 @@ expand_builtin_apply (rtx function, rtx arguments, rtx argsize)
      arguments to the outgoing arguments address.  We can pass TRUE
      as the 4th argument because we just saved the stack pointer
      and will restore it right after the call.  */
-  allocate_dynamic_stack_space (argsize, 0, BIGGEST_ALIGNMENT, true);
+  allocate_dynamic_stack_space (argsize, 0, BIGGEST_ALIGNMENT, -1, true);
 
   /* Set DRAP flag to true, even though allocate_dynamic_stack_space
      may have already set current_function_calls_alloca to true.
@@ -1813,14 +1816,26 @@ expand_builtin_classify_type (tree exp)
   return GEN_INT (no_type_class);
 }
 
-/* This helper macro, meant to be used in mathfn_built_in below,
-   determines which among a set of three builtin math functions is
-   appropriate for a given type mode.  The `F' and `L' cases are
-   automatically generated from the `double' case.  */
+/* This helper macro, meant to be used in mathfn_built_in below, determines
+   which among a set of builtin math functions is appropriate for a given type
+   mode.  The `F' (float) and `L' (long double) are automatically generated
+   from the 'double' case.  If a function supports the _Float<N> and _Float<N>X
+   types, there are additional types that are considered with 'F32', 'F64',
+   'F128', etc. suffixes.  */
 #define CASE_MATHFN(MATHFN) \
   CASE_CFN_##MATHFN: \
   fcode = BUILT_IN_##MATHFN; fcodef = BUILT_IN_##MATHFN##F ; \
   fcodel = BUILT_IN_##MATHFN##L ; break;
+/* Similar to the above, but also add support for the _Float<N> and _Float<N>X
+   types.  */
+#define CASE_MATHFN_FLOATN(MATHFN) \
+  CASE_CFN_##MATHFN: \
+  fcode = BUILT_IN_##MATHFN; fcodef = BUILT_IN_##MATHFN##F ; \
+  fcodel = BUILT_IN_##MATHFN##L ; fcodef16 = BUILT_IN_##MATHFN##F16 ; \
+  fcodef32 = BUILT_IN_##MATHFN##F32; fcodef64 = BUILT_IN_##MATHFN##F64 ; \
+  fcodef128 = BUILT_IN_##MATHFN##F128 ; fcodef32x = BUILT_IN_##MATHFN##F32X ; \
+  fcodef64x = BUILT_IN_##MATHFN##F64X ; fcodef128x = BUILT_IN_##MATHFN##F128X ;\
+  break;
 /* Similar to above, but appends _R after any F/L suffix.  */
 #define CASE_MATHFN_REENT(MATHFN) \
   case CFN_BUILT_IN_##MATHFN##_R: \
@@ -1837,7 +1852,15 @@ expand_builtin_classify_type (tree exp)
 static built_in_function
 mathfn_built_in_2 (tree type, combined_fn fn)
 {
+  tree mtype;
   built_in_function fcode, fcodef, fcodel;
+  built_in_function fcodef16 = END_BUILTINS;
+  built_in_function fcodef32 = END_BUILTINS;
+  built_in_function fcodef64 = END_BUILTINS;
+  built_in_function fcodef128 = END_BUILTINS;
+  built_in_function fcodef32x = END_BUILTINS;
+  built_in_function fcodef64x = END_BUILTINS;
+  built_in_function fcodef128x = END_BUILTINS;
 
   switch (fn)
     {
@@ -1851,7 +1874,7 @@ mathfn_built_in_2 (tree type, combined_fn fn)
     CASE_MATHFN (CBRT)
     CASE_MATHFN (CEIL)
     CASE_MATHFN (CEXPI)
-    CASE_MATHFN (COPYSIGN)
+    CASE_MATHFN_FLOATN (COPYSIGN)
     CASE_MATHFN (COS)
     CASE_MATHFN (COSH)
     CASE_MATHFN (DREM)
@@ -1864,9 +1887,9 @@ mathfn_built_in_2 (tree type, combined_fn fn)
     CASE_MATHFN (FABS)
     CASE_MATHFN (FDIM)
     CASE_MATHFN (FLOOR)
-    CASE_MATHFN (FMA)
-    CASE_MATHFN (FMAX)
-    CASE_MATHFN (FMIN)
+    CASE_MATHFN_FLOATN (FMA)
+    CASE_MATHFN_FLOATN (FMAX)
+    CASE_MATHFN_FLOATN (FMIN)
     CASE_MATHFN (FMOD)
     CASE_MATHFN (FREXP)
     CASE_MATHFN (GAMMA)
@@ -1920,7 +1943,7 @@ mathfn_built_in_2 (tree type, combined_fn fn)
     CASE_MATHFN (SIN)
     CASE_MATHFN (SINCOS)
     CASE_MATHFN (SINH)
-    CASE_MATHFN (SQRT)
+    CASE_MATHFN_FLOATN (SQRT)
     CASE_MATHFN (TAN)
     CASE_MATHFN (TANH)
     CASE_MATHFN (TGAMMA)
@@ -1933,12 +1956,27 @@ mathfn_built_in_2 (tree type, combined_fn fn)
       return END_BUILTINS;
     }
 
-  if (TYPE_MAIN_VARIANT (type) == double_type_node)
+  mtype = TYPE_MAIN_VARIANT (type);
+  if (mtype == double_type_node)
     return fcode;
-  else if (TYPE_MAIN_VARIANT (type) == float_type_node)
+  else if (mtype == float_type_node)
     return fcodef;
-  else if (TYPE_MAIN_VARIANT (type) == long_double_type_node)
+  else if (mtype == long_double_type_node)
     return fcodel;
+  else if (mtype == float16_type_node)
+    return fcodef16;
+  else if (mtype == float32_type_node)
+    return fcodef32;
+  else if (mtype == float64_type_node)
+    return fcodef64;
+  else if (mtype == float128_type_node)
+    return fcodef128;
+  else if (mtype == float32x_type_node)
+    return fcodef32x;
+  else if (mtype == float64x_type_node)
+    return fcodef64x;
+  else if (mtype == float128x_type_node)
+    return fcodef128x;
   else
     return END_BUILTINS;
 }
@@ -1992,6 +2030,9 @@ associated_internal_fn (tree fndecl)
     {
 #define DEF_INTERNAL_FLT_FN(NAME, FLAGS, OPTAB, TYPE) \
     CASE_FLT_FN (BUILT_IN_##NAME): return IFN_##NAME;
+#define DEF_INTERNAL_FLT_FLOATN_FN(NAME, FLAGS, OPTAB, TYPE) \
+    CASE_FLT_FN (BUILT_IN_##NAME): return IFN_##NAME; \
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_##NAME): return IFN_##NAME;
 #define DEF_INTERNAL_INT_FN(NAME, FLAGS, OPTAB, TYPE) \
     CASE_INT_FN (BUILT_IN_##NAME): return IFN_##NAME;
 #include "internal-fn.def"
@@ -2065,6 +2106,7 @@ expand_builtin_mathfn_ternary (tree exp, rtx target, rtx subtarget)
   switch (DECL_FUNCTION_CODE (fndecl))
     {
     CASE_FLT_FN (BUILT_IN_FMA):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_FMA):
       builtin_optab = fma_optab; break;
     default:
       gcc_unreachable ();
@@ -2753,7 +2795,7 @@ expand_builtin_powi (tree exp, rtx target)
   /* Emit a libcall to libgcc.  */
 
   /* Mode of the 2nd argument must match that of an int.  */
-  mode2 = mode_for_size (INT_TYPE_SIZE, MODE_INT, 0);
+  mode2 = int_mode_for_size (INT_TYPE_SIZE, 0).require ();
 
   if (target == NULL_RTX)
     target = gen_reg_rtx (mode);
@@ -2766,7 +2808,7 @@ expand_builtin_powi (tree exp, rtx target)
     op1 = convert_to_mode (mode2, op1, 0);
 
   target = emit_library_call_value (optab_libfunc (powi_optab, mode),
-				    target, LCT_CONST, mode, 2,
+				    target, LCT_CONST, mode,
 				    op0, mode, op1, mode2);
 
   return target;
@@ -2790,7 +2832,7 @@ expand_builtin_strlen (tree exp, rtx target,
       tree src = CALL_EXPR_ARG (exp, 0);
       rtx src_reg;
       rtx_insn *before_strlen;
-      machine_mode insn_mode = target_mode;
+      machine_mode insn_mode;
       enum insn_code icode = CODE_FOR_nothing;
       unsigned int align;
 
@@ -2818,13 +2860,11 @@ expand_builtin_strlen (tree exp, rtx target,
 	return NULL_RTX;
 
       /* Bail out if we can't compute strlen in the right mode.  */
-      while (insn_mode != VOIDmode)
+      FOR_EACH_MODE_FROM (insn_mode, target_mode)
 	{
 	  icode = optab_handler (strlen_optab, insn_mode);
 	  if (icode != CODE_FOR_nothing)
 	    break;
-
-	  insn_mode = GET_MODE_WIDER_MODE (insn_mode);
 	}
       if (insn_mode == VOIDmode)
 	return NULL_RTX;
@@ -2883,7 +2923,7 @@ expand_builtin_strlen (tree exp, rtx target,
 
 static rtx
 builtin_memcpy_read_str (void *data, HOST_WIDE_INT offset,
-			 machine_mode mode)
+			 scalar_int_mode mode)
 {
   const char *str = (const char *) data;
 
@@ -2959,81 +2999,6 @@ determine_block_size (tree len, rtx len_rtx,
   gcc_checking_assert (*max_size <=
 		       (unsigned HOST_WIDE_INT)
 			  GET_MODE_MASK (GET_MODE (len_rtx)));
-}
-
-/* Helper function to do the actual work for expand_builtin_memcpy.  */
-
-static rtx
-expand_builtin_memcpy_args (tree dest, tree src, tree len, rtx target, tree exp)
-{
-  const char *src_str;
-  unsigned int src_align = get_pointer_alignment (src);
-  unsigned int dest_align = get_pointer_alignment (dest);
-  rtx dest_mem, src_mem, dest_addr, len_rtx;
-  HOST_WIDE_INT expected_size = -1;
-  unsigned int expected_align = 0;
-  unsigned HOST_WIDE_INT min_size;
-  unsigned HOST_WIDE_INT max_size;
-  unsigned HOST_WIDE_INT probable_max_size;
-
-  /* If DEST is not a pointer type, call the normal function.  */
-  if (dest_align == 0)
-    return NULL_RTX;
-
-  /* If either SRC is not a pointer type, don't do this
-     operation in-line.  */
-  if (src_align == 0)
-    return NULL_RTX;
-
-  if (currently_expanding_gimple_stmt)
-    stringop_block_profile (currently_expanding_gimple_stmt,
-			    &expected_align, &expected_size);
-
-  if (expected_align < dest_align)
-    expected_align = dest_align;
-  dest_mem = get_memory_rtx (dest, len);
-  set_mem_align (dest_mem, dest_align);
-  len_rtx = expand_normal (len);
-  determine_block_size (len, len_rtx, &min_size, &max_size,
-			&probable_max_size);
-  src_str = c_getstr (src);
-
-  /* If SRC is a string constant and block move would be done
-     by pieces, we can avoid loading the string from memory
-     and only stored the computed constants.  */
-  if (src_str
-      && CONST_INT_P (len_rtx)
-      && (unsigned HOST_WIDE_INT) INTVAL (len_rtx) <= strlen (src_str) + 1
-      && can_store_by_pieces (INTVAL (len_rtx), builtin_memcpy_read_str,
-			      CONST_CAST (char *, src_str),
-			      dest_align, false))
-    {
-      dest_mem = store_by_pieces (dest_mem, INTVAL (len_rtx),
-				  builtin_memcpy_read_str,
-				  CONST_CAST (char *, src_str),
-				  dest_align, false, 0);
-      dest_mem = force_operand (XEXP (dest_mem, 0), target);
-      dest_mem = convert_memory_address (ptr_mode, dest_mem);
-      return dest_mem;
-    }
-
-  src_mem = get_memory_rtx (src, len);
-  set_mem_align (src_mem, src_align);
-
-  /* Copy word part most expediently.  */
-  dest_addr = emit_block_move_hints (dest_mem, src_mem, len_rtx,
-				     CALL_EXPR_TAILCALL (exp)
-				     ? BLOCK_OP_TAILCALL : BLOCK_OP_NORMAL,
-				     expected_align, expected_size,
-				     min_size, max_size, probable_max_size);
-
-  if (dest_addr == 0)
-    {
-      dest_addr = force_operand (XEXP (dest_mem, 0), target);
-      dest_addr = convert_memory_address (ptr_mode, dest_addr);
-    }
-
-  return dest_addr;
 }
 
 /* Try to verify that the sizes and lengths of the arguments to a string
@@ -3378,7 +3343,8 @@ expand_builtin_memcpy (tree exp, rtx target)
 
   check_memop_sizes (exp, dest, src, len);
 
-  return expand_builtin_memcpy_args (dest, src, len, target, exp);
+  return expand_builtin_memory_copy_args (dest, src, len, target, exp,
+					  /*endp=*/ 0);
 }
 
 /* Check a call EXP to the memmove built-in for validity.
@@ -3418,7 +3384,8 @@ expand_builtin_memcpy_with_bounds (tree exp, rtx target)
       tree dest = CALL_EXPR_ARG (exp, 0);
       tree src = CALL_EXPR_ARG (exp, 2);
       tree len = CALL_EXPR_ARG (exp, 4);
-      rtx res = expand_builtin_memcpy_args (dest, src, len, target, exp);
+      rtx res = expand_builtin_memory_copy_args (dest, src, len, target, exp,
+						 /*end_p=*/ 0);
 
       /* Return src bounds with the result.  */
       if (res)
@@ -3440,7 +3407,7 @@ expand_builtin_memcpy_with_bounds (tree exp, rtx target)
    stpcpy.  */
 
 static rtx
-expand_builtin_mempcpy (tree exp, rtx target, machine_mode mode)
+expand_builtin_mempcpy (tree exp, rtx target)
 {
   if (!validate_arglist (exp,
  			 POINTER_TYPE, POINTER_TYPE, INTEGER_TYPE, VOID_TYPE))
@@ -3457,8 +3424,7 @@ expand_builtin_mempcpy (tree exp, rtx target, machine_mode mode)
     return NULL_RTX;
 
   return expand_builtin_mempcpy_args (dest, src, len,
-				      target, mode, /*endp=*/ 1,
-				      exp);
+				      target, exp, /*endp=*/ 1);
 }
 
 /* Expand an instrumented call EXP to the mempcpy builtin.
@@ -3467,7 +3433,7 @@ expand_builtin_mempcpy (tree exp, rtx target, machine_mode mode)
    mode MODE if that's convenient).  */
 
 static rtx
-expand_builtin_mempcpy_with_bounds (tree exp, rtx target, machine_mode mode)
+expand_builtin_mempcpy_with_bounds (tree exp, rtx target)
 {
   if (!validate_arglist (exp,
 			 POINTER_TYPE, POINTER_BOUNDS_TYPE,
@@ -3480,7 +3446,7 @@ expand_builtin_mempcpy_with_bounds (tree exp, rtx target, machine_mode mode)
       tree src = CALL_EXPR_ARG (exp, 2);
       tree len = CALL_EXPR_ARG (exp, 4);
       rtx res = expand_builtin_mempcpy_args (dest, src, len, target,
-					     mode, 1, exp);
+					     exp, 1);
 
       /* Return src bounds with the result.  */
       if (res)
@@ -3493,94 +3459,103 @@ expand_builtin_mempcpy_with_bounds (tree exp, rtx target, machine_mode mode)
     }
 }
 
-/* Helper function to do the actual work for expand_builtin_mempcpy.  The
-   arguments to the builtin_mempcpy call DEST, SRC, and LEN are broken out
-   so that this can also be called without constructing an actual CALL_EXPR.
-   The other arguments and return value are the same as for
-   expand_builtin_mempcpy.  */
+/* Helper function to do the actual work for expand of memory copy family
+   functions (memcpy, mempcpy, stpcpy).  Expansing should assign LEN bytes
+   of memory from SRC to DEST and assign to TARGET if convenient.
+   If ENDP is 0 return the
+   destination pointer, if ENDP is 1 return the end pointer ala
+   mempcpy, and if ENDP is 2 return the end pointer minus one ala
+   stpcpy.  */
+
+static rtx
+expand_builtin_memory_copy_args (tree dest, tree src, tree len,
+				 rtx target, tree exp, int endp)
+{
+  const char *src_str;
+  unsigned int src_align = get_pointer_alignment (src);
+  unsigned int dest_align = get_pointer_alignment (dest);
+  rtx dest_mem, src_mem, dest_addr, len_rtx;
+  HOST_WIDE_INT expected_size = -1;
+  unsigned int expected_align = 0;
+  unsigned HOST_WIDE_INT min_size;
+  unsigned HOST_WIDE_INT max_size;
+  unsigned HOST_WIDE_INT probable_max_size;
+
+  /* If DEST is not a pointer type, call the normal function.  */
+  if (dest_align == 0)
+    return NULL_RTX;
+
+  /* If either SRC is not a pointer type, don't do this
+     operation in-line.  */
+  if (src_align == 0)
+    return NULL_RTX;
+
+  if (currently_expanding_gimple_stmt)
+    stringop_block_profile (currently_expanding_gimple_stmt,
+			    &expected_align, &expected_size);
+
+  if (expected_align < dest_align)
+    expected_align = dest_align;
+  dest_mem = get_memory_rtx (dest, len);
+  set_mem_align (dest_mem, dest_align);
+  len_rtx = expand_normal (len);
+  determine_block_size (len, len_rtx, &min_size, &max_size,
+			&probable_max_size);
+  src_str = c_getstr (src);
+
+  /* If SRC is a string constant and block move would be done
+     by pieces, we can avoid loading the string from memory
+     and only stored the computed constants.  */
+  if (src_str
+      && CONST_INT_P (len_rtx)
+      && (unsigned HOST_WIDE_INT) INTVAL (len_rtx) <= strlen (src_str) + 1
+      && can_store_by_pieces (INTVAL (len_rtx), builtin_memcpy_read_str,
+			      CONST_CAST (char *, src_str),
+			      dest_align, false))
+    {
+      dest_mem = store_by_pieces (dest_mem, INTVAL (len_rtx),
+				  builtin_memcpy_read_str,
+				  CONST_CAST (char *, src_str),
+				  dest_align, false, endp);
+      dest_mem = force_operand (XEXP (dest_mem, 0), target);
+      dest_mem = convert_memory_address (ptr_mode, dest_mem);
+      return dest_mem;
+    }
+
+  src_mem = get_memory_rtx (src, len);
+  set_mem_align (src_mem, src_align);
+
+  /* Copy word part most expediently.  */
+  dest_addr = emit_block_move_hints (dest_mem, src_mem, len_rtx,
+				     CALL_EXPR_TAILCALL (exp)
+				     && (endp == 0 || target == const0_rtx)
+				     ? BLOCK_OP_TAILCALL : BLOCK_OP_NORMAL,
+				     expected_align, expected_size,
+				     min_size, max_size, probable_max_size);
+
+  if (dest_addr == 0)
+    {
+      dest_addr = force_operand (XEXP (dest_mem, 0), target);
+      dest_addr = convert_memory_address (ptr_mode, dest_addr);
+    }
+
+  if (endp && target != const0_rtx)
+    {
+      dest_addr = gen_rtx_PLUS (ptr_mode, dest_addr, len_rtx);
+      /* stpcpy pointer to last byte.  */
+      if (endp == 2)
+	dest_addr = gen_rtx_MINUS (ptr_mode, dest_addr, const1_rtx);
+    }
+
+  return dest_addr;
+}
 
 static rtx
 expand_builtin_mempcpy_args (tree dest, tree src, tree len,
-			     rtx target, machine_mode mode, int endp,
-			     tree orig_exp)
+			     rtx target, tree orig_exp, int endp)
 {
-  tree fndecl = get_callee_fndecl (orig_exp);
-
-    /* If return value is ignored, transform mempcpy into memcpy.  */
-  if (target == const0_rtx
-      && DECL_FUNCTION_CODE (fndecl) == BUILT_IN_CHKP_MEMPCPY_NOBND_NOCHK_CHKP
-      && builtin_decl_implicit_p (BUILT_IN_CHKP_MEMCPY_NOBND_NOCHK_CHKP))
-    {
-      tree fn = builtin_decl_implicit (BUILT_IN_CHKP_MEMCPY_NOBND_NOCHK_CHKP);
-      tree result = build_call_nofold_loc (UNKNOWN_LOCATION, fn, 3,
-					   dest, src, len);
-      return expand_expr (result, target, mode, EXPAND_NORMAL);
-    }
-  else if (target == const0_rtx
-	   && builtin_decl_implicit_p (BUILT_IN_MEMCPY))
-    {
-      tree fn = builtin_decl_implicit (BUILT_IN_MEMCPY);
-      tree result = build_call_nofold_loc (UNKNOWN_LOCATION, fn, 3,
-					   dest, src, len);
-      return expand_expr (result, target, mode, EXPAND_NORMAL);
-    }
-  else
-    {
-      const char *src_str;
-      unsigned int src_align = get_pointer_alignment (src);
-      unsigned int dest_align = get_pointer_alignment (dest);
-      rtx dest_mem, src_mem, len_rtx;
-
-      /* If either SRC or DEST is not a pointer type, don't do this
-	 operation in-line.  */
-      if (dest_align == 0 || src_align == 0)
-	return NULL_RTX;
-
-      /* If LEN is not constant, call the normal function.  */
-      if (! tree_fits_uhwi_p (len))
-	return NULL_RTX;
-
-      len_rtx = expand_normal (len);
-      src_str = c_getstr (src);
-
-      /* If SRC is a string constant and block move would be done
-	 by pieces, we can avoid loading the string from memory
-	 and only stored the computed constants.  */
-      if (src_str
-	  && CONST_INT_P (len_rtx)
-	  && (unsigned HOST_WIDE_INT) INTVAL (len_rtx) <= strlen (src_str) + 1
-	  && can_store_by_pieces (INTVAL (len_rtx), builtin_memcpy_read_str,
-				  CONST_CAST (char *, src_str),
-				  dest_align, false))
-	{
-	  dest_mem = get_memory_rtx (dest, len);
-	  set_mem_align (dest_mem, dest_align);
-	  dest_mem = store_by_pieces (dest_mem, INTVAL (len_rtx),
-				      builtin_memcpy_read_str,
-				      CONST_CAST (char *, src_str),
-				      dest_align, false, endp);
-	  dest_mem = force_operand (XEXP (dest_mem, 0), NULL_RTX);
-	  dest_mem = convert_memory_address (ptr_mode, dest_mem);
-	  return dest_mem;
-	}
-
-      if (CONST_INT_P (len_rtx)
-	  && can_move_by_pieces (INTVAL (len_rtx),
-				 MIN (dest_align, src_align)))
-	{
-	  dest_mem = get_memory_rtx (dest, len);
-	  set_mem_align (dest_mem, dest_align);
-	  src_mem = get_memory_rtx (src, len);
-	  set_mem_align (src_mem, src_align);
-	  dest_mem = move_by_pieces (dest_mem, src_mem, INTVAL (len_rtx),
-				     MIN (dest_align, src_align), endp);
-	  dest_mem = force_operand (XEXP (dest_mem, 0), NULL_RTX);
-	  dest_mem = convert_memory_address (ptr_mode, dest_mem);
-	  return dest_mem;
-	}
-
-      return NULL_RTX;
-    }
+  return expand_builtin_memory_copy_args (dest, src, len, target, orig_exp,
+					  endp);
 }
 
 /* Expand into a movstr instruction, if one is available.  Return NULL_RTX if
@@ -3738,8 +3713,7 @@ expand_builtin_stpcpy (tree exp, rtx target, machine_mode mode)
 
       lenp1 = size_binop_loc (loc, PLUS_EXPR, len, ssize_int (1));
       ret = expand_builtin_mempcpy_args (dst, src, lenp1,
-					 target, mode, /*endp=*/2,
-					 exp);
+					 target, exp, /*endp=*/2);
 
       if (ret)
 	return ret;
@@ -3810,7 +3784,7 @@ expand_builtin_stpncpy (tree exp, rtx)
 
 rtx
 builtin_strncpy_read_str (void *data, HOST_WIDE_INT offset,
-			  machine_mode mode)
+			  scalar_int_mode mode)
 {
   const char *str = (const char *) data;
 
@@ -4018,7 +3992,7 @@ expand_builtin_strncpy (tree exp, rtx target)
 
 rtx
 builtin_memset_read_str (void *data, HOST_WIDE_INT offset ATTRIBUTE_UNUSED,
-			 machine_mode mode)
+			 scalar_int_mode mode)
 {
   const char *c = (const char *) data;
   char *p = XALLOCAVEC (char, GET_MODE_SIZE (mode));
@@ -4035,7 +4009,7 @@ builtin_memset_read_str (void *data, HOST_WIDE_INT offset ATTRIBUTE_UNUSED,
 
 static rtx
 builtin_memset_gen_str (void *data, HOST_WIDE_INT offset ATTRIBUTE_UNUSED,
-			machine_mode mode)
+			scalar_int_mode mode)
 {
   rtx target, coeff;
   size_t size;
@@ -4923,19 +4897,22 @@ expand_builtin_alloca (tree exp)
   rtx result;
   unsigned int align;
   tree fndecl = get_callee_fndecl (exp);
-  bool alloca_with_align = (DECL_FUNCTION_CODE (fndecl)
-			    == BUILT_IN_ALLOCA_WITH_ALIGN);
+  HOST_WIDE_INT max_size;
+  enum built_in_function fcode = DECL_FUNCTION_CODE (fndecl);
   bool alloca_for_var = CALL_ALLOCA_FOR_VAR_P (exp);
   bool valid_arglist
-    = (alloca_with_align
-       ? validate_arglist (exp, INTEGER_TYPE, INTEGER_TYPE, VOID_TYPE)
-       : validate_arglist (exp, INTEGER_TYPE, VOID_TYPE));
+    = (fcode == BUILT_IN_ALLOCA_WITH_ALIGN_AND_MAX
+       ? validate_arglist (exp, INTEGER_TYPE, INTEGER_TYPE, INTEGER_TYPE,
+			   VOID_TYPE)
+       : fcode == BUILT_IN_ALLOCA_WITH_ALIGN
+	 ? validate_arglist (exp, INTEGER_TYPE, INTEGER_TYPE, VOID_TYPE)
+	 : validate_arglist (exp, INTEGER_TYPE, VOID_TYPE));
 
   if (!valid_arglist)
     return NULL_RTX;
 
-  if ((alloca_with_align && !warn_vla_limit)
-      || (!alloca_with_align && !warn_alloca_limit))
+  if ((alloca_for_var && !warn_vla_limit)
+      || (!alloca_for_var && !warn_alloca_limit))
     {
       /* -Walloca-larger-than and -Wvla-larger-than settings override
 	 the more general -Walloc-size-larger-than so unless either of
@@ -4950,13 +4927,19 @@ expand_builtin_alloca (tree exp)
   op0 = expand_normal (CALL_EXPR_ARG (exp, 0));
 
   /* Compute the alignment.  */
-  align = (alloca_with_align
-	   ? TREE_INT_CST_LOW (CALL_EXPR_ARG (exp, 1))
-	   : BIGGEST_ALIGNMENT);
+  align = (fcode == BUILT_IN_ALLOCA
+	   ? BIGGEST_ALIGNMENT
+	   : TREE_INT_CST_LOW (CALL_EXPR_ARG (exp, 1)));
+
+  /* Compute the maximum size.  */
+  max_size = (fcode == BUILT_IN_ALLOCA_WITH_ALIGN_AND_MAX
+              ? TREE_INT_CST_LOW (CALL_EXPR_ARG (exp, 2))
+              : -1);
 
   /* Allocate the desired space.  If the allocation stems from the declaration
      of a variable-sized object, it cannot accumulate.  */
-  result = allocate_dynamic_stack_space (op0, 0, align, alloca_for_var);
+  result
+    = allocate_dynamic_stack_space (op0, 0, align, max_size, alloca_for_var);
   result = convert_memory_address (ptr_mode, result);
 
   return result;
@@ -4975,8 +4958,8 @@ expand_asan_emit_allocas_unpoison (tree exp)
   rtx top = expand_expr (arg0, NULL_RTX, ptr_mode, EXPAND_NORMAL);
   rtx bot = convert_memory_address (ptr_mode, virtual_stack_dynamic_rtx);
   rtx ret = init_one_libfunc ("__asan_allocas_unpoison");
-  ret = emit_library_call_value (ret, NULL_RTX, LCT_NORMAL, ptr_mode, 2, top,
-				 ptr_mode, bot, ptr_mode);
+  ret = emit_library_call_value (ret, NULL_RTX, LCT_NORMAL, ptr_mode,
+				 top, ptr_mode, bot, ptr_mode);
   return ret;
 }
 
@@ -5367,7 +5350,8 @@ static rtx
 expand_builtin_signbit (tree exp, rtx target)
 {
   const struct real_format *fmt;
-  machine_mode fmode, imode, rmode;
+  scalar_float_mode fmode;
+  scalar_int_mode rmode, imode;
   tree arg;
   int word, bitpos;
   enum insn_code icode;
@@ -5378,8 +5362,8 @@ expand_builtin_signbit (tree exp, rtx target)
     return NULL_RTX;
 
   arg = CALL_EXPR_ARG (exp, 0);
-  fmode = TYPE_MODE (TREE_TYPE (arg));
-  rmode = TYPE_MODE (TREE_TYPE (exp));
+  fmode = SCALAR_FLOAT_TYPE_MODE (TREE_TYPE (arg));
+  rmode = SCALAR_INT_TYPE_MODE (TREE_TYPE (exp));
   fmt = REAL_MODE_FORMAT (fmode);
 
   arg = builtin_save_expr (arg);
@@ -5414,8 +5398,7 @@ expand_builtin_signbit (tree exp, rtx target)
 
   if (GET_MODE_SIZE (fmode) <= UNITS_PER_WORD)
     {
-      imode = int_mode_for_mode (fmode);
-      gcc_assert (imode != BLKmode);
+      imode = int_mode_for_mode (fmode).require ();
       temp = gen_lowpart (imode, temp);
     }
   else
@@ -5543,7 +5526,7 @@ get_builtin_sync_mode (int fcode_diff)
 {
   /* The size is not negotiable, so ask not to get BLKmode in return
      if the target indicates that a smaller size would be better.  */
-  return mode_for_size (BITS_PER_UNIT << fcode_diff, MODE_INT, 0);
+  return int_mode_for_size (BITS_PER_UNIT << fcode_diff, 0).require ();
 }
 
 /* Expand the memory expression LOC and return the appropriate memory operand
@@ -5924,7 +5907,7 @@ expand_ifn_atomic_compare_exchange (gcall *call)
 {
   int size = tree_to_shwi (gimple_call_arg (call, 3)) & 255;
   gcc_assert (size == 1 || size == 2 || size == 4 || size == 8 || size == 16);
-  machine_mode mode = mode_for_size (BITS_PER_UNIT * size, MODE_INT, 0);
+  machine_mode mode = int_mode_for_size (BITS_PER_UNIT * size, 0).require ();
   rtx expect, desired, mem, oldval, boolret;
   enum memmodel success, failure;
   tree lhs;
@@ -6220,7 +6203,7 @@ expand_builtin_atomic_clear (tree exp)
   rtx mem, ret;
   enum memmodel model;
 
-  mode = mode_for_size (BOOL_TYPE_SIZE, MODE_INT, 0);
+  mode = int_mode_for_size (BOOL_TYPE_SIZE, 0).require ();
   mem = get_builtin_sync_mem (CALL_EXPR_ARG (exp, 0), mode);
   model = get_memmodel (CALL_EXPR_ARG (exp, 1));
 
@@ -6255,7 +6238,7 @@ expand_builtin_atomic_test_and_set (tree exp, rtx target)
   enum memmodel model;
   machine_mode mode;
 
-  mode = mode_for_size (BOOL_TYPE_SIZE, MODE_INT, 0);
+  mode = int_mode_for_size (BOOL_TYPE_SIZE, 0).require ();
   mem = get_builtin_sync_mem (CALL_EXPR_ARG (exp, 0), mode);
   model = get_memmodel (CALL_EXPR_ARG (exp, 1));
 
@@ -6276,8 +6259,11 @@ fold_builtin_atomic_always_lock_free (tree arg0, tree arg1)
   if (TREE_CODE (arg0) != INTEGER_CST)
     return NULL_TREE;
 
+  /* We need a corresponding integer mode for the access to be lock-free.  */
   size = INTVAL (expand_normal (arg0)) * BITS_PER_UNIT;
-  mode = mode_for_size (size, MODE_INT, 0);
+  if (!int_mode_for_size (size, 0).exists (&mode))
+    return boolean_false_node;
+
   mode_align = GET_MODE_ALIGNMENT (mode);
 
   if (TREE_CODE (arg1) == INTEGER_CST)
@@ -6544,8 +6530,7 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
       && fcode != BUILT_IN_EXECLE
       && fcode != BUILT_IN_EXECVP
       && fcode != BUILT_IN_EXECVE
-      && fcode != BUILT_IN_ALLOCA
-      && fcode != BUILT_IN_ALLOCA_WITH_ALIGN
+      && !ALLOCA_FUNCTION_CODE_P (fcode)
       && fcode != BUILT_IN_FREE
       && fcode != BUILT_IN_CHKP_SET_PTR_BOUNDS
       && fcode != BUILT_IN_CHKP_INIT_PTR_BOUNDS
@@ -6621,6 +6606,7 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
       break;
 
     CASE_FLT_FN (BUILT_IN_FMA):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_FMA):
       target = expand_builtin_mathfn_ternary (exp, target, subtarget);
       if (target)
 	return target;
@@ -6774,8 +6760,7 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
       else
 	return XEXP (DECL_RTL (DECL_RESULT (current_function_decl)), 0);
 
-    case BUILT_IN_ALLOCA:
-    case BUILT_IN_ALLOCA_WITH_ALIGN:
+    CASE_BUILT_IN_ALLOCA:
       target = expand_builtin_alloca (exp);
       if (target)
 	return target;
@@ -6902,7 +6887,7 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
       break;
 
     case BUILT_IN_MEMPCPY:
-      target = expand_builtin_mempcpy (exp, target, mode);
+      target = expand_builtin_mempcpy (exp, target);
       if (target)
 	return target;
       break;
@@ -7681,7 +7666,7 @@ expand_builtin_with_bounds (tree exp, rtx target,
       break;
 
     case BUILT_IN_CHKP_MEMPCPY_NOBND_NOCHK_CHKP:
-      target = expand_builtin_mempcpy_with_bounds (exp, target, mode);
+      target = expand_builtin_mempcpy_with_bounds (exp, target);
       if (target)
 	return target;
       break;
@@ -9051,6 +9036,7 @@ fold_builtin_3 (location_t loc, tree fndecl,
       return fold_builtin_sincos (loc, arg0, arg1, arg2);
 
     CASE_FLT_FN (BUILT_IN_FMA):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_FMA):
       return fold_builtin_fma (loc, arg0, arg1, arg2, type);
 
     CASE_FLT_FN (BUILT_IN_REMQUO):
@@ -10430,9 +10416,9 @@ set_builtin_user_assembler_name (tree decl, const char *asmspec)
   if (DECL_FUNCTION_CODE (decl) == BUILT_IN_FFS
       && INT_TYPE_SIZE < BITS_PER_WORD)
     {
+      scalar_int_mode mode = int_mode_for_size (INT_TYPE_SIZE, 0).require ();
       set_user_assembler_libfunc ("ffs", asmspec);
-      set_optab_libfunc (ffs_optab, mode_for_size (INT_TYPE_SIZE, MODE_INT, 0),
-			 "ffs");
+      set_optab_libfunc (ffs_optab, mode, "ffs");
     }
 }
 
@@ -10487,8 +10473,7 @@ is_inexpensive_builtin (tree decl)
     switch (DECL_FUNCTION_CODE (decl))
       {
       case BUILT_IN_ABS:
-      case BUILT_IN_ALLOCA:
-      case BUILT_IN_ALLOCA_WITH_ALIGN:
+      CASE_BUILT_IN_ALLOCA:
       case BUILT_IN_BSWAP16:
       case BUILT_IN_BSWAP32:
       case BUILT_IN_BSWAP64:

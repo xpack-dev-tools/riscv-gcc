@@ -262,6 +262,9 @@ gnat_post_options (const char **pfilename ATTRIBUTE_UNUSED)
   /* No psABI change warnings for Ada.  */
   warn_psabi = 0;
 
+  /* No return type warnings for Ada.  */
+  warn_return_type = 0;
+
   /* No caret by default for Ada.  */
   if (!global_options_set.x_flag_diagnostics_show_caret)
     global_dc->show_caret = false;
@@ -1311,12 +1314,14 @@ enumerate_modes (void (*f) (const char *, int, int, int, int, int, int, int))
 int
 fp_prec_to_size (int prec)
 {
-  machine_mode mode;
+  opt_scalar_float_mode opt_mode;
 
-  for (mode = GET_CLASS_NARROWEST_MODE (MODE_FLOAT); mode != VOIDmode;
-       mode = GET_MODE_WIDER_MODE (mode))
-    if (GET_MODE_PRECISION (mode) == prec)
-      return GET_MODE_BITSIZE (mode);
+  FOR_EACH_MODE_IN_CLASS (opt_mode, MODE_FLOAT)
+    {
+      scalar_float_mode mode = opt_mode.require ();
+      if (GET_MODE_PRECISION (mode) == prec)
+	return GET_MODE_BITSIZE (mode);
+    }
 
   gcc_unreachable ();
 }
@@ -1326,12 +1331,14 @@ fp_prec_to_size (int prec)
 int
 fp_size_to_prec (int size)
 {
-  machine_mode mode;
+  opt_scalar_float_mode opt_mode;
 
-  for (mode = GET_CLASS_NARROWEST_MODE (MODE_FLOAT); mode != VOIDmode;
-       mode = GET_MODE_WIDER_MODE (mode))
-    if (GET_MODE_BITSIZE (mode) == size)
-      return GET_MODE_PRECISION (mode);
+  FOR_EACH_MODE_IN_CLASS (opt_mode, MODE_FLOAT)
+    {
+      scalar_mode mode = opt_mode.require ();
+      if (GET_MODE_BITSIZE (mode) == size)
+	return GET_MODE_PRECISION (mode);
+    }
 
   gcc_unreachable ();
 }
@@ -1366,6 +1373,23 @@ gnat_init_ts (void)
   MARK_TS_TYPED (EXIT_STMT);
 }
 
+/* Return the size of a tree with CODE, which is a language-specific tree code
+   in category tcc_constant, tcc_exceptional or tcc_type.  The default expects
+   never to be called.  */
+
+static size_t
+gnat_tree_size (enum tree_code code)
+{
+  gcc_checking_assert (code >= NUM_TREE_CODES);
+  switch (code)
+    {
+    case UNCONSTRAINED_ARRAY_TYPE:
+      return sizeof (tree_type_non_common);
+    default:
+      gcc_unreachable ();
+    }
+}
+
 /* Return the lang specific structure attached to NODE.  Allocate it (cleared)
    if needed.  */
 
@@ -1383,6 +1407,8 @@ get_lang_specific (tree node)
 #define LANG_HOOKS_NAME			"GNU Ada"
 #undef  LANG_HOOKS_IDENTIFIER_SIZE
 #define LANG_HOOKS_IDENTIFIER_SIZE	sizeof (struct tree_identifier)
+#undef  LANG_HOOKS_TREE_SIZE
+#define LANG_HOOKS_TREE_SIZE		gnat_tree_size
 #undef  LANG_HOOKS_INIT
 #define LANG_HOOKS_INIT			gnat_init
 #undef  LANG_HOOKS_OPTION_LANG_MASK

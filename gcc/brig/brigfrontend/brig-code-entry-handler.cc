@@ -88,10 +88,17 @@ brig_code_entry_handler::build_code_ref (const BrigBase &ref)
     {
       const BrigDirectiveFbarrier* fbar = (const BrigDirectiveFbarrier*)&ref;
 
-      uint64_t offset = m_parent.group_variable_segment_offset
-	(m_parent.get_mangled_name (fbar));
+      std::string var_name = m_parent.get_mangled_name (fbar);
+      uint64_t offset
+	= m_parent.m_cf->group_variable_segment_offset (var_name);
 
-      return build_int_cst (uint32_type_node, offset);
+      tree local_offset = build_int_cst (uint32_type_node, offset);
+      if (m_parent.m_cf->m_local_group_variables.has_variable (var_name))
+	local_offset
+	  = build2 (PLUS_EXPR, uint64_type_node, local_offset,
+		    convert (uint64_type_node,
+			     m_parent.m_cf->m_group_local_offset_arg));
+      return local_offset;
     }
   else
     gcc_unreachable ();
@@ -264,9 +271,18 @@ brig_code_entry_handler::build_address_operand
 	}
       else if (segment == BRIG_SEGMENT_GROUP)
 	{
-
-	  uint64_t offset = m_parent.group_variable_segment_offset (var_name);
+	  uint64_t offset
+	    = m_parent.m_cf->group_variable_segment_offset (var_name);
 	  const_offset = build_int_cst (size_type_node, offset);
+
+	  /* If it's a local group variable reference, substract the local
+	     group segment offset to get the group base ptr offset.  */
+	  if (m_parent.m_cf->m_local_group_variables.has_variable (var_name))
+	    const_offset
+	      = build2 (PLUS_EXPR, uint64_type_node, const_offset,
+			convert (uint64_type_node,
+				 m_parent.m_cf->m_group_local_offset_arg));
+
 	}
       else if (segment == BRIG_SEGMENT_PRIVATE || segment == BRIG_SEGMENT_SPILL)
 	{
@@ -1423,9 +1439,8 @@ brig_code_entry_handler::build_output_assignment (const BrigInstBase &brig_inst,
 	  tree element_ref
 	    = build3 (BIT_FIELD_REF, element_type, input,
 		      TYPE_SIZE (element_type),
-		      build_int_cst (uint32_type_node,
-				     i * int_size_in_bytes (element_type)
-				     *  BITS_PER_UNIT));
+		      bitsize_int (i * int_size_in_bytes (element_type)
+				   *  BITS_PER_UNIT));
 
 	  last_assign
 	    = build_output_assignment (brig_inst, element, element_ref);
@@ -1488,7 +1503,7 @@ brig_code_entry_handler::unpack (tree value, tree_stl_vec &elements)
       tree element
 	= build3 (BIT_FIELD_REF, input_element_type, value,
 		  TYPE_SIZE (input_element_type),
-		  build_int_cst (unsigned_char_type_node, i * element_size));
+		  bitsize_int(i * element_size));
 
       element = add_temp_var ("scalar", element);
       elements.push_back (element);
@@ -1543,9 +1558,8 @@ tree_element_unary_visitor::operator () (brig_code_entry_handler &handler,
 	{
 	  tree element = build3 (BIT_FIELD_REF, input_element_type, operand,
 				 TYPE_SIZE (input_element_type),
-				 build_int_cst (unsigned_char_type_node,
-						i * element_size
-						* BITS_PER_UNIT));
+				 bitsize_int (i * element_size
+					      * BITS_PER_UNIT));
 
 	  tree output = visit_element (handler, element);
 	  output_element_type = TREE_TYPE (output);
@@ -1594,15 +1608,13 @@ tree_element_binary_visitor::operator () (brig_code_entry_handler &handler,
 
 	  tree element0 = build3 (BIT_FIELD_REF, input_element_type, operand0,
 				  TYPE_SIZE (input_element_type),
-				  build_int_cst (unsigned_char_type_node,
-						 i * element_size
-						 * BITS_PER_UNIT));
+				  bitsize_int (i * element_size
+					       * BITS_PER_UNIT));
 
 	  tree element1 = build3 (BIT_FIELD_REF, input_element_type, operand1,
 				  TYPE_SIZE (input_element_type),
-				  build_int_cst (unsigned_char_type_node,
-						 i * element_size
-						 * BITS_PER_UNIT));
+				  bitsize_int (i * element_size
+					       * BITS_PER_UNIT));
 
 	  tree output = visit_element (handler, element0, element1);
 	  output_element_type = TREE_TYPE (output);

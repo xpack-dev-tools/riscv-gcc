@@ -123,6 +123,10 @@ struct lang_hooks_for_types
      FUNCTION_TYPE or METHOD_TYPE.  */
   bool (*type_hash_eq) (const_tree, const_tree);
 
+  /* If non-NULL, return TYPE1 with any language-specific modifiers copied from
+     TYPE2.  */
+  tree (*copy_lang_qualifiers) (const_tree, const_tree);
+
   /* Return TRUE if TYPE uses a hidden descriptor and fills in information
      for the debugger about the array bounds, strides, etc.  */
   bool (*get_array_descr_info) (const_tree, struct array_descr_info *);
@@ -303,10 +307,10 @@ struct lang_hooks
   /* Remove any parts of the tree that are used only by the FE. */
   void (*free_lang_data) (tree);
 
-  /* Determines the size of any language-specific tcc_constant or
-     tcc_exceptional nodes.  Since it is called from make_node, the
-     only information available is the tree code.  Expected to die
-     on unrecognized codes.  */
+  /* Determines the size of any language-specific tcc_constant,
+     tcc_exceptional or tcc_type nodes.  Since it is called from
+     make_node, the only information available is the tree code.
+     Expected to die on unrecognized codes.  */
   size_t (*tree_size) (enum tree_code);
 
   /* Return the language mask used for converting argv into a sequence

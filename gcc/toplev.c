@@ -63,6 +63,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "hosthooks.h"
 #include "opts.h"
 #include "opts-diagnostic.h"
+#include "stringpool.h"
+#include "attribs.h"
 #include "asan.h"
 #include "tsan.h"
 #include "plugin.h"
@@ -80,12 +82,12 @@ along with GCC; see the file COPYING3.  If not see
 #include "hsa-common.h"
 #include "edit-context.h"
 #include "tree-pass.h"
+#include "dumpfile.h"
+#include "ipa-fnsummary.h"
 
 #if defined(DBX_DEBUGGING_INFO) || defined(XCOFF_DEBUGGING_INFO)
 #include "dbxout.h"
 #endif
-
-#include "sdbout.h"
 
 #ifdef XCOFF_DEBUGGING_INFO
 #include "xcoffout.h"		/* Needed for external data declarations. */
@@ -236,7 +238,7 @@ announce_function (tree decl)
     }
 }
 
-/* Initialize local_tick with a random number or -1 if
+/* Initialize local_tick with the time of day, or -1 if
    flag_random_seed is set.  */
 
 static void
@@ -244,19 +246,6 @@ init_local_tick (void)
 {
   if (!flag_random_seed)
     {
-      /* Try urandom first. Time of day is too likely to collide. 
-	 In case of any error we just use the local tick. */
-
-      int fd = open ("/dev/urandom", O_RDONLY);
-      if (fd >= 0)
-        {
-          if (read (fd, &random_seed, sizeof (random_seed))
-              != sizeof (random_seed))
-            random_seed = 0;
-          close (fd);
-        }
-
-      /* Now get the tick anyways  */
 #ifdef HAVE_GETTIMEOFDAY
       {
 	struct timeval tv;
@@ -277,34 +266,33 @@ init_local_tick (void)
     local_tick = -1;
 }
 
-/* Set up a default flag_random_seed and local_tick, unless the user
-   already specified one.  Must be called after init_local_tick.  */
-
-static void
-init_random_seed (void)
-{
-  if (!random_seed)
-    random_seed = local_tick ^ getpid ();  /* Old racey fallback method */
-}
-
 /* Obtain the random_seed.  Unless NOINIT, initialize it if
    it's not provided in the command line.  */
 
 HOST_WIDE_INT
 get_random_seed (bool noinit)
 {
-  if (!flag_random_seed && !noinit)
-    init_random_seed ();
+  if (!random_seed && !noinit)
+    {
+      int fd = open ("/dev/urandom", O_RDONLY);
+      if (fd >= 0)
+        {
+          if (read (fd, &random_seed, sizeof (random_seed))
+              != sizeof (random_seed))
+            random_seed = 0;
+          close (fd);
+        }
+      if (!random_seed)
+	random_seed = local_tick ^ getpid ();
+    }
   return random_seed;
 }
 
-/* Modify the random_seed string to VAL.  Return its previous
-   value.  */
+/* Set flag_random_seed to VAL, and if non-null, reinitialize random_seed.  */
 
-const char *
+void
 set_random_seed (const char *val)
 {
-  const char *old = flag_random_seed;
   flag_random_seed = val;
   if (flag_random_seed)
     {
@@ -315,7 +303,6 @@ set_random_seed (const char *val)
       if (!(endp > flag_random_seed && *endp == 0))
         random_seed = crc32_string (0, flag_random_seed);
     }
-  return old;
 }
 
 /* Handler for fatal signals, such as SIGSEGV.  These are transformed
@@ -815,11 +802,6 @@ print_switch_values (print_switch_fn_type print_fn)
   int pos = 0;
   size_t j;
 
-  /* Fill in the -frandom-seed option, if the user didn't pass it, so
-     that it can be printed below.  This helps reproducibility.  */
-  if (!flag_random_seed)
-    init_random_seed ();
-
   /* Print the options as passed.  */
   pos = print_single_switch (print_fn, pos,
 			     SWITCH_TYPE_DESCRIPTIVE, _("options passed: "));
@@ -1064,11 +1046,22 @@ open_auxiliary_file (const char *ext)
   return file;
 }
 
+/* Alternative diagnostics callback for reentered ICE reporting.  */
+
+static void
+internal_error_reentered (diagnostic_context *, const char *, va_list *)
+{
+  /* Flush the dump file if emergency_dump_function itself caused an ICE.  */
+  if (dump_file)
+    fflush (dump_file);
+}
+
 /* Auxiliary callback for the diagnostics code.  */
 
 static void
 internal_error_function (diagnostic_context *, const char *, va_list *)
 {
+  global_dc->internal_error = internal_error_reentered;
   warn_if_plugins ();
   emergency_dump_function ();
 }
@@ -1283,6 +1276,32 @@ process_options (void)
 	   "-floop-parallelize-all)");
 #endif
 
+  if (flag_cf_protection != CF_NONE
+      && !(flag_cf_protection & CF_SET))
+    {
+      if (flag_cf_protection == CF_FULL)
+	{
+	  error_at (UNKNOWN_LOCATION,
+		    "%<-fcf-protection=full%> is not supported for this "
+		    "target");
+	  flag_cf_protection = CF_NONE;
+	}
+      if (flag_cf_protection == CF_BRANCH)
+	{
+	  error_at (UNKNOWN_LOCATION,
+		    "%<-fcf-protection=branch%> is not supported for this "
+		    "target");
+	  flag_cf_protection = CF_NONE;
+	}
+      if (flag_cf_protection == CF_RETURN)
+	{
+	  error_at (UNKNOWN_LOCATION,
+		    "%<-fcf-protection=return%> is not supported for this "
+		    "target");
+	  flag_cf_protection = CF_NONE;
+	}
+    }
+
   if (flag_check_pointer_bounds)
     {
       if (targetm.chkp_bound_mode () == VOIDmode)
@@ -1447,8 +1466,6 @@ process_options (void)
   else if (write_symbols == XCOFF_DEBUG)
     debug_hooks = &xcoff_debug_hooks;
 #endif
-  else if (SDB_DEBUGGING_INFO && write_symbols == SDB_DEBUG)
-    debug_hooks = &sdb_debug_hooks;
 #ifdef DWARF2_DEBUGGING_INFO
   else if (write_symbols == DWARF2_DEBUG)
     debug_hooks = &dwarf2_debug_hooks;
@@ -1589,6 +1606,26 @@ process_options (void)
 		  "-fassociative-math disabled; other options take "
 		  "precedence");
       flag_associative_math = 0;
+    }
+
+  /* -fstack-clash-protection is not currently supported on targets
+     where the stack grows up.  */
+  if (flag_stack_clash_protection && !STACK_GROWS_DOWNWARD)
+    {
+      warning_at (UNKNOWN_LOCATION, 0,
+		  "%<-fstack-clash-protection%> is not supported on targets "
+		  "where the stack grows from lower to higher addresses");
+      flag_stack_clash_protection = 0;
+    }
+
+  /* We can not support -fstack-check= and -fstack-clash-protection at
+     the same time.  */
+  if (flag_stack_check != NO_STACK_CHECK && flag_stack_clash_protection)
+    {
+      warning_at (UNKNOWN_LOCATION, 0,
+		  "%<-fstack-check=%> and %<-fstack-clash_protection%> are "
+		  "mutually exclusive.  Disabling %<-fstack-check=%>");
+      flag_stack_check = NO_STACK_CHECK;
     }
 
   /* With -fcx-limited-range, we do cheap and quick complex arithmetic.  */
@@ -2135,7 +2172,8 @@ toplev::main (int argc, char **argv)
      enough to default flags appropriately.  */
   decode_options (&global_options, &global_options_set,
 		  save_decoded_options, save_decoded_options_count,
-		  UNKNOWN_LOCATION, global_dc);
+		  UNKNOWN_LOCATION, global_dc,
+		  targetm.target_option.override);
 
   handle_common_deferred_options ();
 
@@ -2171,7 +2209,7 @@ toplev::main (int argc, char **argv)
     {
       gcc_assert (global_dc->edit_context_ptr);
 
-      pretty_printer (pp);
+      pretty_printer pp;
       pp_show_color (&pp) = pp_show_color (global_dc->printer);
       global_dc->edit_context_ptr->print_diff (&pp, true);
       pp_flush (&pp);
@@ -2199,6 +2237,7 @@ toplev::finalize (void)
 
   /* Needs to be called before cgraph_c_finalize since it uses symtab.  */
   ipa_reference_c_finalize ();
+  ipa_fnsummary_c_finalize ();
 
   cgraph_c_finalize ();
   cgraphunit_c_finalize ();

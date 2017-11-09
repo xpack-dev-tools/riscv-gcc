@@ -46,7 +46,6 @@ extern void avr_init_cumulative_args (CUMULATIVE_ARGS*, tree, rtx, tree);
 #endif /* TREE_CODE */
 
 #ifdef RTX_CODE
-extern int avr_hard_regno_call_part_clobbered (unsigned, machine_mode);
 extern const char *output_movqi (rtx_insn *insn, rtx operands[], int *l);
 extern const char *output_movhi (rtx_insn *insn, rtx operands[], int *l);
 extern const char *output_movsisf (rtx_insn *insn, rtx operands[], int *l);
@@ -85,7 +84,6 @@ extern void avr_expand_prologue (void);
 extern void avr_expand_epilogue (bool);
 extern bool avr_emit_movmemhi (rtx*);
 extern int avr_epilogue_uses (int regno);
-extern int avr_starting_frame_offset (void);
 
 extern void avr_output_addr_vec (rtx_insn*, rtx);
 extern const char *avr_out_sbxx_branch (rtx_insn *insn, rtx operands[]);
@@ -112,7 +110,6 @@ extern int avr_jump_mode (rtx x, rtx_insn *insn);
 extern int test_hard_reg_class (enum reg_class rclass, rtx x);
 extern int jump_over_one_insn_p (rtx_insn *insn, rtx dest);
 
-extern int avr_hard_regno_mode_ok (int regno, machine_mode mode);
 extern void avr_final_prescan_insn (rtx_insn *insn, rtx *operand,
 				    int num_operands);
 extern int avr_simplify_comparison_p (machine_mode mode,
@@ -134,7 +131,7 @@ extern bool avr_casei_sequence_check_operands (rtx *xop);
 static inline unsigned
 regmask (machine_mode mode, unsigned regno)
 {
-  return ((1u << GET_MODE_SIZE (mode)) - 1) << regno;
+  return ((1u << GET_MODE_SIZE (as_a <fixed_size_mode> (mode))) - 1) << regno;
 }
 
 extern void avr_fix_inputs (rtx*, unsigned, unsigned);

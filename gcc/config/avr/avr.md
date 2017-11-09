@@ -334,10 +334,9 @@
         (unspec_volatile:HI [(const_int 0)] UNSPECV_GOTO_RECEIVER))]
   ""
   {
+    rtx offset = gen_int_mode (targetm.starting_frame_offset (), Pmode);
     emit_move_insn (virtual_stack_vars_rtx,
-                    gen_rtx_PLUS (Pmode, hard_frame_pointer_rtx,
-                                  gen_int_mode (STARTING_FRAME_OFFSET,
-                                                Pmode)));
+                    gen_rtx_PLUS (Pmode, hard_frame_pointer_rtx, offset));
     /* ; This might change the hard frame pointer in ways that aren't
        ; apparent to early optimization passes, so force a clobber.  */
     emit_clobber (hard_frame_pointer_rtx);
@@ -5819,7 +5818,7 @@
               (set (match_dup 2)
                    (unspec_volatile:BLK [(match_dup 2)]
                                         UNSPECV_MEMORY_BARRIER))])]
-  "TARGET_GASISR_PROLOGUES"
+  "avr_gasisr_prologues"
   {
     operands[2] = gen_rtx_MEM (BLKmode, gen_rtx_SCRATCH (Pmode));
     MEM_VOLATILE_P (operands[2]) = 1;
@@ -5833,7 +5832,7 @@
         (unspec_volatile:HI [(reg:HI REG_SP)] UNSPECV_GASISR))
    (set (match_operand:BLK 2)
         (unspec_volatile:BLK [(match_dup 2)] UNSPECV_MEMORY_BARRIER))]
-  "TARGET_GASISR_PROLOGUES"
+  "avr_gasisr_prologues"
   "__gcc_isr %0"
   [(set_attr "length" "6,5")
    (set_attr "cc" "clobber")])
@@ -6804,11 +6803,11 @@
 
 
 (define_insn_and_split "*iorhi3.ashift8-ext.zerox"
-  [(set (match_operand:HI 0 "register_operand"                        "=r")
+  [(set (match_operand:HI 0 "register_operand"                        "=r,r")
         (ior:HI (ashift:HI (any_extend:HI
-                            (match_operand:QI 1 "register_operand"     "r"))
+                            (match_operand:QI 1 "register_operand"     "r,r"))
                            (const_int 8))
-                (zero_extend:HI (match_operand:QI 2 "register_operand" "r"))))]
+                (zero_extend:HI (match_operand:QI 2 "register_operand" "0,r"))))]
   "optimize"
   { gcc_unreachable(); }
   "&& reload_completed"

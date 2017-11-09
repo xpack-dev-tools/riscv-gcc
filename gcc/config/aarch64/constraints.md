@@ -35,7 +35,7 @@
  (and (match_code "const_int")
       (match_test "aarch64_uimm12_shift (ival)")))
 
-(define_constraint "Upl"
+(define_constraint "Uaa"
   "@internal A constant that matches two uses of add instructions."
   (and (match_code "const_int")
        (match_test "aarch64_pluslong_strict_immedate (op, VOIDmode)")))
@@ -156,6 +156,14 @@
  (and (match_code "mem")
       (match_test "REG_P (XEXP (op, 0))")))
 
+(define_memory_constraint "Umq"
+  "@internal
+   A memory address which uses a base register with an offset small enough for
+   a load/store pair operation in DI mode."
+   (and (match_code "mem")
+	(match_test "aarch64_legitimate_address_p (DImode, XEXP (op, 0),
+						   PARALLEL, false)")))
+
 (define_memory_constraint "Ump"
   "@internal
   A memory address suitable for a load/store pair operation."
@@ -163,12 +171,28 @@
        (match_test "aarch64_legitimate_address_p (GET_MODE (op), XEXP (op, 0),
 						  PARALLEL, 1)")))
 
+;; Used for storing two 64-bit values in an AdvSIMD register using an STP
+;; as a 128-bit vec_concat.
+(define_memory_constraint "Uml"
+  "@internal
+  A memory address suitable for a load/store pair operation."
+  (and (match_code "mem")
+       (match_test "aarch64_legitimate_address_p (DFmode, XEXP (op, 0),
+						   PARALLEL, 1)")))
+
 (define_memory_constraint "Utv"
   "@internal
    An address valid for loading/storing opaque structure
    types wider than TImode."
   (and (match_code "mem")
        (match_test "aarch64_simd_mem_operand_p (op)")))
+
+(define_memory_constraint "Utq"
+  "@internal
+   An address valid for loading or storing a 128-bit AdvSIMD register"
+  (and (match_code "mem")
+       (match_test "aarch64_legitimate_address_p (V2DImode, XEXP (op, 0),
+						  MEM, 1)")))
 
 (define_constraint "Ufc"
   "A floating point constant which can be used with an\
@@ -181,6 +205,20 @@
    MOVI immediate operation."
   (and (match_code "const_double")
        (match_test "aarch64_can_const_movi_rtx_p (op, GET_MODE (op))")))
+
+(define_constraint "Do"
+  "@internal
+   A constraint that matches vector of immediates for orr."
+ (and (match_code "const_vector")
+      (match_test "aarch64_simd_valid_immediate (op, mode, false,
+						 NULL, AARCH64_CHECK_ORR)")))
+
+(define_constraint "Db"
+  "@internal
+   A constraint that matches vector of immediates for bic."
+ (and (match_code "const_vector")
+      (match_test "aarch64_simd_valid_immediate (op, mode, false,
+						 NULL, AARCH64_CHECK_BIC)")))
 
 (define_constraint "Dn"
   "@internal

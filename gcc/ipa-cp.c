@@ -122,6 +122,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "ipa-fnsummary.h"
 #include "ipa-utils.h"
 #include "tree-ssa-ccp.h"
+#include "stringpool.h"
+#include "attribs.h"
 
 template <typename valtype> class ipcp_value;
 
@@ -3255,6 +3257,8 @@ ipcp_propagate_stage (struct ipa_topo_info *topo)
   if (dump_file)
     fprintf (dump_file, "\n Propagating constants:\n\n");
 
+  max_count = profile_count::uninitialized ();
+
   FOR_EACH_DEFINED_FUNCTION (node)
   {
     struct ipa_node_params *info = IPA_NODE_REF (node);
@@ -3268,8 +3272,7 @@ ipcp_propagate_stage (struct ipa_topo_info *topo)
       }
     if (node->definition && !node->alias)
       overall_size += ipa_fn_summaries->get (node)->self_size;
-    if (node->count > max_count)
-      max_count = node->count;
+    max_count = max_count.max (node->count);
   }
 
   max_new_size = overall_size;
@@ -4969,8 +4972,8 @@ ipcp_store_vr_results (void)
 	    {
 	      vr.known = true;
 	      vr.type = plats->m_value_range.m_vr.type;
-	      vr.min = plats->m_value_range.m_vr.min;
-	      vr.max = plats->m_value_range.m_vr.max;
+	      vr.min = wi::to_wide (plats->m_value_range.m_vr.min);
+	      vr.max = wi::to_wide (plats->m_value_range.m_vr.max);
 	    }
 	  else
 	    {
@@ -5123,7 +5126,7 @@ make_pass_ipa_cp (gcc::context *ctxt)
 void
 ipa_cp_c_finalize (void)
 {
-  max_count = profile_count::zero ();
+  max_count = profile_count::uninitialized ();
   overall_size = 0;
   max_new_size = 0;
 }

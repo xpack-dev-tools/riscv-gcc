@@ -236,23 +236,6 @@ extern const char * const *h8_reg_names;
 /* r0 r1 r2 r3 r4 r5 r6 r7 mac ap rap  fp */	\
   { 2, 3, 0, 1, 4, 5, 6, 8,  7, 9, 10, 11 }
 
-#define HARD_REGNO_NREGS(REGNO, MODE)		\
-  h8300_hard_regno_nregs ((REGNO), (MODE))
-
-#define HARD_REGNO_MODE_OK(REGNO, MODE)		\
-  h8300_hard_regno_mode_ok ((REGNO), (MODE))
-
-/* Value is 1 if it is a good idea to tie two pseudo registers
-   when one has mode MODE1 and one has mode MODE2.
-   If HARD_REGNO_MODE_OK could produce different values for MODE1 and MODE2,
-   for any hard reg, then this must be 0 for correct output.  */
-#define MODES_TIEABLE_P(MODE1, MODE2)					  \
-  ((MODE1) == (MODE2)							  \
-   || (((MODE1) == QImode || (MODE1) == HImode				  \
-	|| ((TARGET_H8300H || TARGET_H8300S) && (MODE1) == SImode))	  \
-       &&  ((MODE2) == QImode || (MODE2) == HImode			  \
-	    || ((TARGET_H8300H || TARGET_H8300S) && (MODE2) == SImode))))
-
 /* A C expression that is nonzero if hard register NEW_REG can be
    considered for use as a rename register for OLD_REG register */
 
@@ -368,13 +351,6 @@ enum reg_class {
    goes at a more negative offset in the frame.  */
 
 #define FRAME_GROWS_DOWNWARD 1
-
-/* Offset within stack frame to start allocating local variables at.
-   If FRAME_GROWS_DOWNWARD, this is the offset to the END of the
-   first local allocated.  Otherwise, it is the offset to the BEGINNING
-   of the first local allocated.  */
-
-#define STARTING_FRAME_OFFSET 0
 
 /* If we generate an insn to push BYTES bytes,
    this says how many the stack pointer really advances by.
@@ -577,10 +553,6 @@ struct cum_arg
    which implies one can omit a sign-extension or zero-extension
    of a shift count.  */
 /* #define SHIFT_COUNT_TRUNCATED */
-
-/* Value is 1 if truncating an integer of INPREC bits to OUTPREC bits
-   is done just by pretending it is already truncated.  */
-#define TRULY_NOOP_TRUNCATION(OUTPREC, INPREC) 1
 
 /* Specify the machine mode that pointers have.
    After generation of rtl, the compiler makes no further distinction

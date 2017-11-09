@@ -1557,11 +1557,10 @@ pushtag (location_t loc, tree name, tree type)
 	  && (TYPE_MAIN_VARIANT (TREE_TYPE (b->decl))
 	      != TYPE_MAIN_VARIANT (type)))
 	{
-	  warning_at (loc, OPT_Wc___compat,
-		      ("using %qD as both a typedef and a tag is "
-		       "invalid in C++"),
-		      b->decl);
-	  if (b->locus != UNKNOWN_LOCATION)
+	  if (warning_at (loc, OPT_Wc___compat,
+			  ("using %qD as both a typedef and a tag is "
+			   "invalid in C++"), b->decl)
+	      && b->locus != UNKNOWN_LOCATION)
 	    inform (b->locus, "originally defined here");
 	}
     }
@@ -1838,7 +1837,8 @@ diagnose_mismatched_decls (tree newdecl, tree olddecl,
 	  locate_old_decl (olddecl);
 	}
       else if (TREE_PUBLIC (newdecl))
-	warning (0, "built-in function %q+D declared as non-function",
+	warning (OPT_Wbuiltin_declaration_mismatch,
+		 "built-in function %q+D declared as non-function",
 		 newdecl);
       else
 	warning (OPT_Wshadow, "declaration of %q+D shadows "
@@ -2384,6 +2384,10 @@ merge_decls (tree newdecl, tree olddecl, tree newtype, tree oldtype)
 	  SET_DECL_ALIGN (newdecl, DECL_ALIGN (olddecl));
 	  DECL_USER_ALIGN (newdecl) |= DECL_USER_ALIGN (olddecl);
 	}
+      if (DECL_WARN_IF_NOT_ALIGN (olddecl)
+	  > DECL_WARN_IF_NOT_ALIGN (newdecl))
+	SET_DECL_WARN_IF_NOT_ALIGN (newdecl,
+				    DECL_WARN_IF_NOT_ALIGN (olddecl));
     }
 
   /* Keep the old rtl since we can safely use it.  */
@@ -2566,6 +2570,8 @@ merge_decls (tree newdecl, tree olddecl, tree newtype, tree oldtype)
 			set_builtin_decl_declared_p (fncode, true);
 		      break;
 		    }
+
+		  copy_attributes_to_builtin (newdecl);
 		}
 	    }
 	  else
@@ -3113,10 +3119,10 @@ implicit_decl_warning (location_t loc, tree id, tree olddecl)
 	{
 	  gcc_rich_location richloc (loc);
 	  richloc.add_fixit_replace (hint);
-	  warned = pedwarn_at_rich_loc
-	    (&richloc, OPT_Wimplicit_function_declaration,
-	     "implicit declaration of function %qE; did you mean %qs?",
-	     id, hint);
+	  warned = pedwarn (&richloc, OPT_Wimplicit_function_declaration,
+			    "implicit declaration of function %qE;"
+			    " did you mean %qs?",
+			    id, hint);
 	}
       else
 	warned = pedwarn (loc, OPT_Wimplicit_function_declaration,
@@ -3126,7 +3132,7 @@ implicit_decl_warning (location_t loc, tree id, tree olddecl)
     {
       gcc_rich_location richloc (loc);
       richloc.add_fixit_replace (hint);
-      warned = warning_at_rich_loc
+      warned = warning_at
 	(&richloc, OPT_Wimplicit_function_declaration,
 	 G_("implicit declaration of function %qE; did you mean %qs?"),
 	 id, hint);
@@ -3157,6 +3163,7 @@ header_for_builtin_fn (enum built_in_function fcode)
     CASE_FLT_FN (BUILT_IN_CBRT):
     CASE_FLT_FN (BUILT_IN_CEIL):
     CASE_FLT_FN (BUILT_IN_COPYSIGN):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_COPYSIGN):
     CASE_FLT_FN (BUILT_IN_COS):
     CASE_FLT_FN (BUILT_IN_COSH):
     CASE_FLT_FN (BUILT_IN_ERF):
@@ -3165,11 +3172,15 @@ header_for_builtin_fn (enum built_in_function fcode)
     CASE_FLT_FN (BUILT_IN_EXP2):
     CASE_FLT_FN (BUILT_IN_EXPM1):
     CASE_FLT_FN (BUILT_IN_FABS):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_FABS):
     CASE_FLT_FN (BUILT_IN_FDIM):
     CASE_FLT_FN (BUILT_IN_FLOOR):
     CASE_FLT_FN (BUILT_IN_FMA):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_FMA):
     CASE_FLT_FN (BUILT_IN_FMAX):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_FMAX):
     CASE_FLT_FN (BUILT_IN_FMIN):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_FMIN):
     CASE_FLT_FN (BUILT_IN_FMOD):
     CASE_FLT_FN (BUILT_IN_FREXP):
     CASE_FLT_FN (BUILT_IN_HYPOT):
@@ -3201,6 +3212,7 @@ header_for_builtin_fn (enum built_in_function fcode)
     CASE_FLT_FN (BUILT_IN_SINH):
     CASE_FLT_FN (BUILT_IN_SINCOS):
     CASE_FLT_FN (BUILT_IN_SQRT):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_SQRT):
     CASE_FLT_FN (BUILT_IN_TAN):
     CASE_FLT_FN (BUILT_IN_TANH):
     CASE_FLT_FN (BUILT_IN_TGAMMA):
@@ -3389,10 +3401,9 @@ implicitly_declare (location_t loc, tree functionid)
 		    {
 		      rich_location richloc (line_table, loc);
 		      maybe_add_include_fixit (&richloc, header);
-		      inform_at_rich_loc
-			(&richloc,
-			 "include %qs or provide a declaration of %qD",
-			 header, decl);
+		      inform (&richloc,
+			      "include %qs or provide a declaration of %qD",
+			      header, decl);
 		    }
 		  newtype = TREE_TYPE (decl);
 		}
@@ -3460,10 +3471,10 @@ undeclared_variable (location_t loc, tree id)
 	{
 	  gcc_rich_location richloc (loc);
 	  richloc.add_fixit_replace (guessed_id);
-	  error_at_rich_loc (&richloc,
-			     "%qE undeclared here (not in a function);"
-			     " did you mean %qs?",
-			     id, guessed_id);
+	  error_at (&richloc,
+		    "%qE undeclared here (not in a function);"
+		    " did you mean %qs?",
+		    id, guessed_id);
 	}
       else
 	error_at (loc, "%qE undeclared here (not in a function)", id);
@@ -3478,11 +3489,10 @@ undeclared_variable (location_t loc, tree id)
 	    {
 	      gcc_rich_location richloc (loc);
 	      richloc.add_fixit_replace (guessed_id);
-	      error_at_rich_loc
-		(&richloc,
-		 "%qE undeclared (first use in this function);"
-		 " did you mean %qs?",
-		 id, guessed_id);
+	      error_at (&richloc,
+			"%qE undeclared (first use in this function);"
+			" did you mean %qs?",
+			id, guessed_id);
 	    }
 	  else
 	    error_at (loc, "%qE undeclared (first use in this function)", id);
@@ -5187,6 +5197,8 @@ push_parm_decl (const struct c_parm *parm, tree *expr)
 
   decl = grokdeclarator (parm->declarator, parm->specs, PARM, false, NULL,
 			 &attrs, expr, NULL, DEPRECATED_NORMAL);
+  if (decl && DECL_P (decl))
+    DECL_SOURCE_LOCATION (decl) = parm->loc;
   decl_attributes (&decl, attrs, 0);
 
   decl = pushdecl (decl);
@@ -5244,9 +5256,7 @@ build_compound_literal (location_t loc, tree type, tree init, bool non_const)
   DECL_ARTIFICIAL (decl) = 1;
   DECL_IGNORED_P (decl) = 1;
   TREE_TYPE (decl) = type;
-  TREE_READONLY (decl) = (TYPE_READONLY (type)
-			  || (TREE_CODE (type) == ARRAY_TYPE
-			      && TYPE_READONLY (TREE_TYPE (type))));
+  c_apply_type_quals_to_decl (TYPE_QUALS (strip_array_types (type)), decl);
   store_init_value (loc, decl, init, NULL_TREE);
 
   if (TREE_CODE (type) == ARRAY_TYPE && !COMPLETE_TYPE_P (type))
@@ -5393,6 +5403,13 @@ check_bitfield_type_and_width (location_t loc, tree *type, tree *width,
       && TREE_CODE (*type) != ENUMERAL_TYPE)
     {
       error_at (loc, "bit-field %qs has invalid type", name);
+      *type = unsigned_type_node;
+    }
+
+  if (TYPE_WARN_IF_NOT_ALIGN (*type))
+    {
+      error_at (loc, "cannot declare bit-field %qs with %<warn_if_not_aligned%> type",
+		name);
       *type = unsigned_type_node;
     }
 
@@ -6596,11 +6613,10 @@ grokdeclarator (const struct c_declarator *declarator,
 		  || (current_scope == file_scope && B_IN_EXTERNAL_SCOPE (b)))
 	      && TYPE_MAIN_VARIANT (b->decl) != TYPE_MAIN_VARIANT (type))
 	    {
-	      warning_at (declarator->id_loc, OPT_Wc___compat,
-			  ("using %qD as both a typedef and a tag is "
-			   "invalid in C++"),
-			  decl);
-	      if (b->locus != UNKNOWN_LOCATION)
+	      if (warning_at (declarator->id_loc, OPT_Wc___compat,
+			      ("using %qD as both a typedef and a tag is "
+			       "invalid in C++"), decl)
+		  && b->locus != UNKNOWN_LOCATION)
 		inform (b->locus, "originally defined here");
 	    }
 	}
@@ -7002,7 +7018,8 @@ grokdeclarator (const struct c_declarator *declarator,
 
   /* This is the earliest point at which we might know the assembler
      name of a variable.  Thus, if it's known before this, die horribly.  */
-    gcc_assert (!DECL_ASSEMBLER_NAME_SET_P (decl));
+    gcc_assert (!HAS_DECL_ASSEMBLER_NAME_P (decl)
+		|| !DECL_ASSEMBLER_NAME_SET_P (decl));
 
     if (warn_cxx_compat
 	&& VAR_P (decl)
@@ -7593,6 +7610,8 @@ grokfield (location_t loc,
 
   finish_decl (value, loc, NULL_TREE, NULL_TREE, NULL_TREE);
   DECL_INITIAL (value) = width;
+  if (width)
+    SET_DECL_C_BIT_FIELD (value);
 
   if (warn_cxx_compat && DECL_NAME (value) != NULL_TREE)
     {
@@ -7831,6 +7850,26 @@ warn_cxx_compat_finish_struct (tree fieldlist, enum tree_code code,
     b->in_struct = 0;
 }
 
+/* Function to help qsort sort FIELD_DECLs by name order.  */
+
+static int
+field_decl_cmp (const void *x_p, const void *y_p)
+{
+  const tree *const x = (const tree *) x_p;
+  const tree *const y = (const tree *) y_p;
+
+  if (DECL_NAME (*x) == DECL_NAME (*y))
+    /* A nontype is "greater" than a type.  */
+    return (TREE_CODE (*y) == TYPE_DECL) - (TREE_CODE (*x) == TYPE_DECL);
+  if (DECL_NAME (*x) == NULL_TREE)
+    return -1;
+  if (DECL_NAME (*y) == NULL_TREE)
+    return 1;
+  if (DECL_NAME (*x) < DECL_NAME (*y))
+    return -1;
+  return 1;
+}
+
 /* Fill in the fields of a RECORD_TYPE or UNION_TYPE node, T.
    LOC is the location of the RECORD_TYPE or UNION_TYPE's definition.
    FIELDLIST is a chain of FIELD_DECL nodes for the fields.
@@ -7917,12 +7956,11 @@ finish_struct (location_t loc, tree t, tree fieldlist, tree attributes,
       if (C_DECL_VARIABLE_SIZE (x))
 	C_TYPE_VARIABLE_SIZE (t) = 1;
 
-      if (DECL_INITIAL (x))
+      if (DECL_C_BIT_FIELD (x))
 	{
 	  unsigned HOST_WIDE_INT width = tree_to_uhwi (DECL_INITIAL (x));
 	  DECL_SIZE (x) = bitsize_int (width);
 	  DECL_BIT_FIELD (x) = 1;
-	  SET_DECL_C_BIT_FIELD (x);
 	}
 
       if (TYPE_PACKED (t)
@@ -8154,6 +8192,53 @@ finish_struct (location_t loc, tree t, tree fieldlist, tree attributes,
     struct_parse_info->struct_types.safe_push (t);
 
   return t;
+}
+
+static struct {
+  gt_pointer_operator new_value;
+  void *cookie;
+} resort_data;
+
+/* This routine compares two fields like field_decl_cmp but using the
+pointer operator in resort_data.  */
+
+static int
+resort_field_decl_cmp (const void *x_p, const void *y_p)
+{
+  const tree *const x = (const tree *) x_p;
+  const tree *const y = (const tree *) y_p;
+
+  if (DECL_NAME (*x) == DECL_NAME (*y))
+    /* A nontype is "greater" than a type.  */
+    return (TREE_CODE (*y) == TYPE_DECL) - (TREE_CODE (*x) == TYPE_DECL);
+  if (DECL_NAME (*x) == NULL_TREE)
+    return -1;
+  if (DECL_NAME (*y) == NULL_TREE)
+    return 1;
+  {
+    tree d1 = DECL_NAME (*x);
+    tree d2 = DECL_NAME (*y);
+    resort_data.new_value (&d1, resort_data.cookie);
+    resort_data.new_value (&d2, resort_data.cookie);
+    if (d1 < d2)
+      return -1;
+  }
+  return 1;
+}
+
+/* Resort DECL_SORTED_FIELDS because pointers have been reordered.  */
+
+void
+resort_sorted_fields (void *obj,
+		      void * ARG_UNUSED (orig_obj),
+		      gt_pointer_operator new_value,
+		      void *cookie)
+{
+  struct sorted_fields_type *sf = (struct sorted_fields_type *) obj;
+  resort_data.new_value = new_value;
+  resort_data.cookie = cookie;
+  qsort (&sf->elts[0], sf->len, sizeof (tree),
+	 resort_field_decl_cmp);
 }
 
 /* Lay out the type T, and its element type, and so on.  */
@@ -8475,7 +8560,7 @@ build_enumerator (location_t decl_loc, location_t loc,
   /* Set basis for default for next value.  */
   the_enum->enum_next_value
     = build_binary_op (EXPR_LOC_OR_LOC (value, input_location),
-		       PLUS_EXPR, value, integer_one_node, 0);
+		       PLUS_EXPR, value, integer_one_node, false);
   the_enum->enum_overflow = tree_int_cst_lt (the_enum->enum_next_value, value);
 
   /* Now create a declaration for the enum value name.  */
@@ -9625,12 +9710,14 @@ build_void_list_node (void)
 
 struct c_parm *
 build_c_parm (struct c_declspecs *specs, tree attrs,
-	      struct c_declarator *declarator)
+	      struct c_declarator *declarator,
+	      location_t loc)
 {
   struct c_parm *ret = XOBNEW (&parser_obstack, struct c_parm);
   ret->specs = specs;
   ret->attrs = attrs;
   ret->declarator = declarator;
+  ret->loc = loc;
   return ret;
 }
 

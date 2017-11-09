@@ -27,6 +27,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "target.h"
 #include "rtl.h"
 #include "tree.h"
+#include "memmodel.h"
+#include "tm_p.h"
 #include "gimple.h"
 #include "gimple-predict.h"
 #include "tree-pass.h"		/* FIXME: only for PROP_gimple_any */
@@ -60,6 +62,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple-walk.h"
 #include "langhooks-def.h"	/* FIXME: for lhd_set_decl_assembler_name */
 #include "builtins.h"
+#include "stringpool.h"
+#include "attribs.h"
 #include "asan.h"
 #include "dbgcnt.h"
 
@@ -1572,9 +1576,8 @@ gimplify_vla_decl (tree decl, gimple_seq *seq_p)
   SET_DECL_VALUE_EXPR (decl, t);
   DECL_HAS_VALUE_EXPR_P (decl) = 1;
 
-  t = builtin_decl_explicit (BUILT_IN_ALLOCA_WITH_ALIGN);
-  t = build_call_expr (t, 2, DECL_SIZE_UNIT (decl),
-		       size_int (DECL_ALIGN (decl)));
+  t = build_alloca_call_expr (DECL_SIZE_UNIT (decl), DECL_ALIGN (decl),
+			      max_int_size_in_bytes (TREE_TYPE (decl)));
   /* The call has been built for a variable-sized object.  */
   CALL_ALLOCA_FOR_VAR_P (t) = 1;
   t = fold_convert (ptr_type, t);
@@ -1654,6 +1657,7 @@ gimplify_decl_expr (tree *stmt_p, gimple_seq *seq_p)
 	  && TREE_ADDRESSABLE (decl)
 	  && !TREE_STATIC (decl)
 	  && !DECL_HAS_VALUE_EXPR_P (decl)
+	  && DECL_ALIGN (decl) <= MAX_SUPPORTED_STACK_ALIGNMENT
 	  && dbg_cnt (asan_use_after_scope))
 	{
 	  asan_poisoned_variables->add (decl);
@@ -2228,8 +2232,10 @@ expand_FALLTHROUGH_r (gimple_stmt_iterator *gsi_p, bool *handled_ops_p,
 		      break;
 		    }
 		}
+	      else if (gimple_call_internal_p (stmt, IFN_ASAN_MARK))
+		;
 	      else
-		/* Something other than a label.  That's not expected.  */
+		/* Something other is not expected.  */
 		break;
 	      gsi_next (&gsi2);
 	    }
@@ -3148,7 +3154,8 @@ gimplify_call_expr (tree *expr_p, gimple_seq *pre_p, bool want_value)
 
       if (EXPR_CILK_SPAWN (*expr_p))
         gimplify_cilk_detach (pre_p);
-      gimple *call = gimple_build_call_internal_vec (ifn, vargs);
+      gcall *call = gimple_build_call_internal_vec (ifn, vargs);
+      gimple_call_set_nothrow (call, TREE_NOTHROW (*expr_p));
       gimplify_seq_add_stmt (pre_p, call);
       return GS_ALL_DONE;
     }
@@ -3170,8 +3177,7 @@ gimplify_call_expr (tree *expr_p, gimple_seq *pre_p, bool want_value)
       && DECL_BUILT_IN_CLASS (fndecl) == BUILT_IN_NORMAL)
     switch (DECL_FUNCTION_CODE (fndecl))
       {
-      case BUILT_IN_ALLOCA:
-      case BUILT_IN_ALLOCA_WITH_ALIGN:
+      CASE_BUILT_IN_ALLOCA:
 	/* If the call has been built for a variable-sized object, then we
 	   want to restore the stack level when the enclosing BIND_EXPR is
 	   exited to reclaim the allocated space; otherwise, we precisely
@@ -3376,8 +3382,7 @@ gimplify_call_expr (tree *expr_p, gimple_seq *pre_p, bool want_value)
       /* The CALL_EXPR in *EXPR_P is already in GIMPLE form, so all we
 	 have to do is replicate it as a GIMPLE_CALL tuple.  */
       gimple_stmt_iterator gsi;
-      call = gimple_build_call_from_tree (*expr_p);
-      gimple_call_set_fntype (call, TREE_TYPE (fnptrtype));
+      call = gimple_build_call_from_tree (*expr_p, fnptrtype);
       notice_special_calls (call);
       if (EXPR_CILK_SPAWN (*expr_p))
         gimplify_cilk_detach (pre_p);
@@ -5476,7 +5481,12 @@ gimplify_modify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
      side as statements and throw away the assignment.  Do this after
      gimplify_modify_expr_rhs so we handle TARGET_EXPRs of addressable
      types properly.  */
-  if (zero_sized_type (TREE_TYPE (*from_p)) && !want_value)
+  if (zero_sized_type (TREE_TYPE (*from_p))
+      && !want_value
+      /* Don't do this for calls that return addressable types, expand_call
+	 relies on those having a lhs.  */
+      && !(TREE_ADDRESSABLE (TREE_TYPE (*from_p))
+	   && TREE_CODE (*from_p) == CALL_EXPR))
     {
       gimplify_stmt (from_p, pre_p);
       gimplify_stmt (to_p, pre_p);
@@ -5634,6 +5644,7 @@ gimplify_modify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
 	      vargs.quick_push (CALL_EXPR_ARG (*from_p, i));
 	    }
 	  call_stmt = gimple_build_call_internal_vec (ifn, vargs);
+	  gimple_call_set_nothrow (call_stmt, TREE_NOTHROW (*from_p));
 	  gimple_set_location (call_stmt, EXPR_LOCATION (*expr_p));
 	}
       else
@@ -5652,8 +5663,7 @@ gimplify_modify_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p,
 						    CALL_EXPR_ARG (*from_p, 2));
 	  else
 	    {
-	      call_stmt = gimple_build_call_from_tree (*from_p);
-	      gimple_call_set_fntype (call_stmt, TREE_TYPE (fnptrtype));
+	      call_stmt = gimple_build_call_from_tree (*from_p, fnptrtype);
 	    }
 	}
       notice_special_calls (call_stmt);
@@ -6496,7 +6506,9 @@ gimplify_target_expr (tree *expr_p, gimple_seq *pre_p, gimple_seq *post_p)
 	      clobber = build2 (MODIFY_EXPR, TREE_TYPE (temp), temp, clobber);
 	      gimple_push_cleanup (temp, clobber, false, pre_p, true);
 	    }
-	  if (asan_poisoned_variables && dbg_cnt (asan_use_after_scope))
+	  if (asan_poisoned_variables
+	      && DECL_ALIGN (temp) <= MAX_SUPPORTED_STACK_ALIGNMENT
+	      && dbg_cnt (asan_use_after_scope))
 	    {
 	      tree asan_cleanup = build_asan_poison_call_expr (temp);
 	      if (asan_cleanup)
@@ -8913,7 +8925,7 @@ gimplify_adjust_omp_clauses (gimple_seq *pre_p, gimple_seq body, tree *list_p,
 		OMP_CLAUSE_SHARED_READONLY (c) = 1;
 	      else if (DECL_P (decl)
 		       && ((OMP_CLAUSE_CODE (c) == OMP_CLAUSE_SHARED
-			    && (n->value & GOVD_WRITTEN) != 1)
+			    && (n->value & GOVD_WRITTEN) != 0)
 			   || (OMP_CLAUSE_CODE (c) == OMP_CLAUSE_LINEAR
 			       && !OMP_CLAUSE_LINEAR_NO_COPYOUT (c)))
 		       && omp_shared_to_firstprivate_optimizable_decl_p (decl))
@@ -10825,6 +10837,7 @@ goa_stabilize_expr (tree *expr_p, gimple_seq *pre_p, tree lhs_addr,
 	case TRUTH_AND_EXPR:
 	case TRUTH_OR_EXPR:
 	case TRUTH_XOR_EXPR:
+	case BIT_INSERT_EXPR:
 	  saw_lhs |= goa_stabilize_expr (&TREE_OPERAND (expr, 1), pre_p,
 					 lhs_addr, lhs_var);
 	  /* FALLTHRU */
@@ -10842,6 +10855,11 @@ goa_stabilize_expr (tree *expr_p, gimple_seq *pre_p, tree lhs_addr,
 	default:
 	  break;
 	}
+      break;
+    case tcc_reference:
+      if (TREE_CODE (expr) == BIT_FIELD_REF)
+	saw_lhs |= goa_stabilize_expr (&TREE_OPERAND (expr, 0), pre_p,
+				       lhs_addr, lhs_var);
       break;
     default:
       break;

@@ -646,6 +646,13 @@ enum gfc_reverse
   GFC_INHIBIT_REVERSE
 };
 
+enum gfc_param_spec_type
+{
+  SPEC_EXPLICIT,
+  SPEC_ASSUMED,
+  SPEC_DEFERRED
+};
+
 /************************* Structures *****************************/
 
 /* Used for keeping things in balanced binary trees.  */
@@ -869,6 +876,11 @@ typedef struct
      variable for SELECT_TYPE or ASSOCIATE.  */
   unsigned select_type_temporary:1, associate_var:1;
 
+  /* These are the attributes required for parameterized derived
+     types.  */
+  unsigned pdt_kind:1, pdt_len:1, pdt_type:1, pdt_template:1,
+	   pdt_array:1, pdt_string:1;
+
   /* This is omp_{out,in,priv,orig} artificial variable in
      !$OMP DECLARE REDUCTION.  */
   unsigned omp_udr_artificial_var:1;
@@ -1012,6 +1024,7 @@ typedef struct
   int is_iso_c;
   bt f90_type;
   bool deferred;
+  gfc_symbol *interop_kind;
 }
 gfc_typespec;
 
@@ -1052,6 +1065,11 @@ typedef struct gfc_component
   tree norestrict_decl;
   locus loc;
   struct gfc_expr *initializer;
+  /* Used in parameterized derived type declarations to store parameterized
+     kind expressions.  */
+  struct gfc_expr *kind_expr;
+  struct gfc_actual_arglist *param_list;
+
   struct gfc_component *next;
 
   /* Needed for procedure pointer components.  */
@@ -1076,7 +1094,8 @@ gfc_formal_arglist;
 #define gfc_get_formal_arglist() XCNEW (gfc_formal_arglist)
 
 
-/* The gfc_actual_arglist structure is for actual arguments.  */
+/* The gfc_actual_arglist structure is for actual arguments and
+   for type parameter specification lists.  */
 typedef struct gfc_actual_arglist
 {
   const char *name;
@@ -1087,6 +1106,8 @@ typedef struct gfc_actual_arglist
      argument. This is used to determine if a hidden string length
      argument has to be added to a function call.  */
   bt missing_arg_type;
+
+  gfc_param_spec_type spec_type;
 
   struct gfc_expr *expr;
   struct gfc_actual_arglist *next;
@@ -1505,6 +1526,9 @@ typedef struct gfc_symbol
   gfc_formal_arglist *formal;
   struct gfc_namespace *formal_ns;
   struct gfc_namespace *f2k_derived;
+
+  /* List of PDT parameter expressions  */
+  struct gfc_actual_arglist *param_list;
 
   struct gfc_expr *value;	/* Parameter/Initializer value */
   gfc_array_spec *as;
@@ -1965,7 +1989,7 @@ gfc_intrinsic_arg;
    argument lists of intrinsic functions. fX with X an integer refer
    to check functions of intrinsics with X arguments. f1m is used for
    the MAX and MIN intrinsics which can have an arbitrary number of
-   arguments, f3ml is used for the MINLOC and MAXLOC intrinsics as
+   arguments, f4ml is used for the MINLOC and MAXLOC intrinsics as
    these have special semantics.  */
 
 typedef union
@@ -1975,7 +1999,7 @@ typedef union
   bool (*f1m)(gfc_actual_arglist *);
   bool (*f2)(struct gfc_expr *, struct gfc_expr *);
   bool (*f3)(struct gfc_expr *, struct gfc_expr *, struct gfc_expr *);
-  bool (*f3ml)(gfc_actual_arglist *);
+  bool (*f4ml)(gfc_actual_arglist *);
   bool (*f3red)(gfc_actual_arglist *);
   bool (*f4)(struct gfc_expr *, struct gfc_expr *, struct gfc_expr *,
 	    struct gfc_expr *);
@@ -2177,6 +2201,9 @@ typedef struct gfc_expr
     gfc_constructor_base constructor;
   }
   value;
+
+  /* Used to store PDT expression lists associated with expressions.  */
+  gfc_actual_arglist *param_list;
 
 }
 gfc_expr;
@@ -2698,6 +2725,12 @@ gfc_finalizer;
 bool gfc_in_match_data (void);
 match gfc_match_char_spec (gfc_typespec *);
 
+/* Handling Parameterized Derived Types  */
+bool gfc_insert_kind_parameter_exprs (gfc_expr *);
+bool gfc_insert_parameter_exprs (gfc_expr *, gfc_actual_arglist *);
+match gfc_get_pdt_instance (gfc_actual_arglist *, gfc_symbol **,
+			    gfc_actual_arglist **);
+
 /* scanner.c */
 void gfc_scanner_done_1 (void);
 void gfc_scanner_init_1 (void);
@@ -2762,6 +2795,17 @@ void gfc_done_1 (void);
 void gfc_done_2 (void);
 
 int get_c_kind (const char *, CInteropKind_t *);
+
+const char *gfc_closest_fuzzy_match (const char *, char **);
+static inline void
+vec_push (char **&optr, size_t &osz, const char *elt)
+{
+  /* {auto,}vec.safe_push () replacement.  Don't ask..  */
+  // if (strlen (elt) < 4) return; premature optimization: eliminated by cutoff
+  optr = XRESIZEVEC (char *, optr, osz + 2);
+  optr[osz] = CONST_CAST (char *, elt);
+  optr[++osz] = NULL;
+}
 
 /* options.c */
 unsigned int gfc_option_lang_mask (void);
@@ -2879,6 +2923,8 @@ bool gfc_add_dimension (symbol_attribute *, const char *, locus *);
 bool gfc_add_external (symbol_attribute *, locus *);
 bool gfc_add_intrinsic (symbol_attribute *, locus *);
 bool gfc_add_optional (symbol_attribute *, locus *);
+bool gfc_add_kind (symbol_attribute *, locus *);
+bool gfc_add_len (symbol_attribute *, locus *);
 bool gfc_add_pointer (symbol_attribute *, locus *);
 bool gfc_add_cray_pointer (symbol_attribute *, locus *);
 bool gfc_add_cray_pointee (symbol_attribute *, locus *);
@@ -3068,7 +3114,8 @@ void gfc_free_omp_declare_simd_list (gfc_omp_declare_simd *);
 void gfc_free_omp_udr (gfc_omp_udr *);
 gfc_omp_udr *gfc_omp_udr_find (gfc_symtree *, gfc_typespec *);
 void gfc_resolve_omp_directive (gfc_code *, gfc_namespace *);
-void gfc_resolve_do_iterator (gfc_code *, gfc_symbol *);
+void gfc_resolve_do_iterator (gfc_code *, gfc_symbol *, bool);
+void gfc_resolve_omp_local_vars (gfc_namespace *);
 void gfc_resolve_omp_parallel_blocks (gfc_code *, gfc_namespace *);
 void gfc_resolve_omp_do_blocks (gfc_code *, gfc_namespace *);
 void gfc_resolve_omp_declare_simd (gfc_namespace *);
@@ -3142,7 +3189,8 @@ bool gfc_traverse_expr (gfc_expr *, gfc_symbol *,
 			int);
 void gfc_expr_set_symbols_referenced (gfc_expr *);
 bool gfc_expr_check_typed (gfc_expr*, gfc_namespace*, bool);
-
+bool gfc_derived_parameter_expr (gfc_expr *);
+gfc_param_spec_type gfc_spec_list_type (gfc_actual_arglist *, gfc_symbol *);
 gfc_component * gfc_get_proc_ptr_comp (gfc_expr *);
 bool gfc_is_proc_ptr_comp (gfc_expr *);
 bool gfc_is_alloc_class_scalar_function (gfc_expr *);
@@ -3192,6 +3240,7 @@ bool gfc_type_is_extensible (gfc_symbol *);
 bool gfc_resolve_intrinsic (gfc_symbol *, locus *);
 bool gfc_explicit_interface_required (gfc_symbol *, char *, int);
 extern int gfc_do_concurrent_flag;
+const char* gfc_lookup_function_fuzzy (const char *, gfc_symtree *);
 
 
 /* array.c */
@@ -3275,6 +3324,7 @@ void gfc_free_dt (gfc_dt *);
 bool gfc_resolve_dt (gfc_dt *, locus *);
 void gfc_free_wait (gfc_wait *);
 bool gfc_resolve_wait (gfc_wait *);
+extern bool async_io_dt;
 
 /* module.c */
 void gfc_module_init_2 (void);
@@ -3311,6 +3361,7 @@ void gfc_delete_bbt (void *, void *, compare_fn);
 
 /* dump-parse-tree.c */
 void gfc_dump_parse_tree (gfc_namespace *, FILE *);
+void gfc_dump_c_prototypes (gfc_namespace *, FILE *);
 
 /* parse.c */
 bool gfc_parse_file (void);

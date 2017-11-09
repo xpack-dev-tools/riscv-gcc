@@ -41,6 +41,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "except.h"
 #include "cgraph.h"
 #include "cfgloop.h"
+#include "debug.h"
 
 
 struct freeing_string_slot_hasher : string_slot_hasher
@@ -714,8 +715,7 @@ make_new_block (struct function *fn, unsigned int index)
 
 static void
 input_cfg (struct lto_input_block *ib, struct data_in *data_in,
-	   struct function *fn,
-	   int count_materialization_scale)
+	   struct function *fn)
 {
   unsigned int bb_count;
   basic_block p_bb;
@@ -755,13 +755,10 @@ input_cfg (struct lto_input_block *ib, struct data_in *data_in,
 	  unsigned int edge_flags;
 	  basic_block dest;
 	  profile_probability probability;
-	  profile_count count;
 	  edge e;
 
 	  dest_index = streamer_read_uhwi (ib);
 	  probability = profile_probability::stream_in (ib);
-	  count = profile_count::stream_in (ib).apply_scale
-			 (count_materialization_scale, REG_BR_PROB_BASE);
 	  edge_flags = streamer_read_uhwi (ib);
 
 	  dest = BASIC_BLOCK_FOR_FN (fn, dest_index);
@@ -771,7 +768,6 @@ input_cfg (struct lto_input_block *ib, struct data_in *data_in,
 
 	  e = make_edge (bb, dest, edge_flags);
 	  e->probability = probability;
-	  e->count = count;
 	}
 
       index = streamer_read_hwi (ib);
@@ -1038,6 +1034,16 @@ input_function (tree fn_decl, struct data_in *data_in,
   DECL_RESULT (fn_decl) = stream_read_tree (ib, data_in);
   DECL_ARGUMENTS (fn_decl) = streamer_read_chain (ib, data_in);
 
+  /* Read debug args if available.  */
+  unsigned n_debugargs = streamer_read_uhwi (ib);
+  if (n_debugargs)
+    {
+      vec<tree, va_gc> **debugargs = decl_debug_args_insert (fn_decl);
+      vec_safe_grow (*debugargs, n_debugargs);
+      for (unsigned i = 0; i < n_debugargs; ++i)
+	(**debugargs)[i] = stream_read_tree (ib, data_in);
+    }
+
   /* Read the tree of lexical scopes for the function.  */
   DECL_INITIAL (fn_decl) = stream_read_tree (ib, data_in);
   unsigned block_leaf_count = streamer_read_uhwi (ib);
@@ -1059,7 +1065,7 @@ input_function (tree fn_decl, struct data_in *data_in,
   if (!node)
     node = cgraph_node::create (fn_decl);
   input_struct_function_base (fn, data_in, ib);
-  input_cfg (ib_cfg, data_in, fn, node->count_materialization_scale);
+  input_cfg (ib_cfg, data_in, fn);
 
   /* Read all the SSA names.  */
   input_ssa_names (ib, data_in, fn);
@@ -1186,6 +1192,7 @@ input_function (tree fn_decl, struct data_in *data_in,
     gimple_set_body (fn_decl, bb_seq (ei_edge (ei)->dest));
   }
 
+  counts_to_freqs ();
   fixup_call_stmt_edges (node, stmts);
   execute_all_ipa_stmt_fixups (node, stmts);
 
@@ -1322,6 +1329,10 @@ lto_input_variable_constructor (struct lto_file_decl_data *file_data,
 }
 
 
+/* Queue of acummulated decl -> DIE mappings.  Similar to locations those
+   are only applied to prevailing tree nodes during tree merging.  */
+vec<dref_entry> dref_queue;
+
 /* Read the physical representation of a tree node EXPR from
    input block IB using the per-file context in DATA_IN.  */
 
@@ -1341,6 +1352,23 @@ lto_read_tree_1 (struct lto_input_block *ib, struct data_in *data_in, tree expr)
       && TREE_CODE (expr) != FUNCTION_DECL
       && TREE_CODE (expr) != TRANSLATION_UNIT_DECL)
     DECL_INITIAL (expr) = stream_read_tree (ib, data_in);
+
+  /* Stream references to early generated DIEs.  Keep in sync with the
+     trees handled in dwarf2out_register_external_die.  */
+  if ((DECL_P (expr)
+       && TREE_CODE (expr) != FIELD_DECL
+       && TREE_CODE (expr) != DEBUG_EXPR_DECL
+       && TREE_CODE (expr) != TYPE_DECL)
+      || TREE_CODE (expr) == BLOCK)
+    {
+      const char *str = streamer_read_string (data_in, ib);
+      if (str)
+	{
+	  unsigned HOST_WIDE_INT off = streamer_read_uhwi (ib);
+	  dref_entry e = { expr, str, off };
+	  dref_queue.safe_push (e);
+	}
+    }
 }
 
 /* Read the physical representation of a tree node with tag TAG from
@@ -1486,6 +1514,13 @@ lto_input_tree (struct lto_input_block *ib, struct data_in *data_in)
     {
       unsigned len, entry_len;
       lto_input_scc (ib, data_in, &len, &entry_len);
+
+      /* Register DECLs with the debuginfo machinery.  */
+      while (!dref_queue.is_empty ())
+	{
+	  dref_entry e = dref_queue.pop ();
+	  debug_hooks->register_external_die (e.decl, e.sym, e.off);
+	}
     }
   return lto_input_tree_1 (ib, data_in, tag, 0);
 }
@@ -1597,7 +1632,7 @@ lto_input_mode_table (struct lto_file_decl_data *file_data)
 				    : GET_CLASS_NARROWEST_MODE (mclass);
 	     pass ? mr < MAX_MACHINE_MODE : mr != VOIDmode;
 	     pass ? mr = (machine_mode) (mr + 1)
-		  : mr = GET_MODE_WIDER_MODE (mr))
+		  : mr = GET_MODE_WIDER_MODE (mr).else_void ())
 	  if (GET_MODE_CLASS (mr) != mclass
 	      || GET_MODE_SIZE (mr) != size
 	      || GET_MODE_PRECISION (mr) != prec

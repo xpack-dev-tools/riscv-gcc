@@ -372,6 +372,8 @@ const struct gcc_debug_hooks dbx_debug_hooks =
   dbxout_late_global_decl,		 /* late_global_decl */
   dbxout_type_decl,			 /* type_decl */
   debug_nothing_tree_tree_tree_bool_bool,/* imported_module_or_decl */
+  debug_false_tree_charstarstar_uhwistar,/* die_ref_for_decl */
+  debug_nothing_tree_charstar_uhwi,      /* register_external_die */
   debug_nothing_tree,		         /* deferred_inline_function */
   debug_nothing_tree,		         /* outlining_inline_function */
   debug_nothing_rtx_code_label,	         /* label */
@@ -412,6 +414,8 @@ const struct gcc_debug_hooks xcoff_debug_hooks =
   dbxout_late_global_decl,		 /* late_global_decl */
   dbxout_type_decl,			 /* type_decl */
   debug_nothing_tree_tree_tree_bool_bool,/* imported_module_or_decl */
+  debug_false_tree_charstarstar_uhwistar,/* die_ref_for_decl */
+  debug_nothing_tree_charstar_uhwi,      /* register_external_die */
   debug_nothing_tree,		         /* deferred_inline_function */
   debug_nothing_tree,		         /* outlining_inline_function */
   debug_nothing_rtx_code_label,	         /* label */
@@ -710,7 +714,7 @@ stabstr_O (tree cst)
 
   /* If the value is zero, the base indicator will serve as the value
      all by itself.  */
-  if (wi::eq_p (cst, 0))
+  if (wi::to_wide (cst) == 0)
     return;
 
   /* GDB wants constants with no extra leading "1" bits, so
@@ -718,19 +722,19 @@ stabstr_O (tree cst)
      present.  */
   if (res_pres == 1)
     {
-      digit = wi::extract_uhwi (cst, prec - 1, 1);
+      digit = wi::extract_uhwi (wi::to_wide (cst), prec - 1, 1);
       stabstr_C ('0' + digit);
     }
   else if (res_pres == 2)
     {
-      digit = wi::extract_uhwi (cst, prec - 2, 2);
+      digit = wi::extract_uhwi (wi::to_wide (cst), prec - 2, 2);
       stabstr_C ('0' + digit);
     }
 
   prec -= res_pres;
   for (i = prec - 3; i >= 0; i = i - 3)
     {
-      digit = wi::extract_uhwi (cst, i, 3);
+      digit = wi::extract_uhwi (wi::to_wide (cst), i, 3);
       stabstr_C ('0' + digit);
     }
 }
@@ -3389,12 +3393,16 @@ dbxout_parms (tree parms)
 {
   ++debug_nesting;
   emit_pending_bincls_if_required ();
+  fixed_size_mode rtl_mode, type_mode;
 
   for (; parms; parms = DECL_CHAIN (parms))
     if (DECL_NAME (parms)
 	&& TREE_TYPE (parms) != error_mark_node
 	&& DECL_RTL_SET_P (parms)
-	&& DECL_INCOMING_RTL (parms))
+	&& DECL_INCOMING_RTL (parms)
+	/* We can't represent variable-sized types in this format.  */
+	&& is_a <fixed_size_mode> (TYPE_MODE (TREE_TYPE (parms)), &type_mode)
+	&& is_a <fixed_size_mode> (GET_MODE (DECL_RTL (parms)), &rtl_mode))
       {
 	tree eff_type;
 	char letter;
@@ -3551,10 +3559,9 @@ dbxout_parms (tree parms)
 	    /* Make a big endian correction if the mode of the type of the
 	       parameter is not the same as the mode of the rtl.  */
 	    if (BYTES_BIG_ENDIAN
-		&& TYPE_MODE (TREE_TYPE (parms)) != GET_MODE (DECL_RTL (parms))
-		&& GET_MODE_SIZE (TYPE_MODE (TREE_TYPE (parms))) < UNITS_PER_WORD)
-	      number += (GET_MODE_SIZE (GET_MODE (DECL_RTL (parms)))
-			 - GET_MODE_SIZE (TYPE_MODE (TREE_TYPE (parms))));
+		&& type_mode != rtl_mode
+		&& GET_MODE_SIZE (type_mode) < UNITS_PER_WORD)
+	      number += GET_MODE_SIZE (rtl_mode) - GET_MODE_SIZE (type_mode);
 	  }
 	else
 	  /* ??? We don't know how to represent this argument.  */

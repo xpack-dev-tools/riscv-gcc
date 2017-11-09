@@ -1,5 +1,5 @@
 // { dg-options "-std=gnu++17" }
-// { dg-do compile { target c++1z } }
+// { dg-do compile { target c++17 } }
 
 // Copyright (C) 2017 Free Software Foundation, Inc.
 //
@@ -30,8 +30,8 @@ template<typename T, typename U>
 struct MoveOnly
 {
   MoveOnly() = default;
-  MoveOnly(MoveOnly&&) {}
-  MoveOnly& operator=(MoveOnly&&) {}
+  MoveOnly(MoveOnly&&);
+  MoveOnly& operator=(MoveOnly&&);
 };
 
 void

@@ -132,7 +132,7 @@ use_modules (void)
 	return st;						\
       else							\
 	undo_new_statement ();				  	\
-    } while (0);
+    } while (0)
 
 
 /* This is a specialist version of decode_statement that is used
@@ -606,7 +606,7 @@ decode_statement (void)
 	return st;						\
       else							\
 	undo_new_statement ();				  	\
-    } while (0);
+    } while (0)
 
 static gfc_statement
 decode_oacc_directive (void)
@@ -728,7 +728,7 @@ decode_oacc_directive (void)
 	}							\
       else							\
 	undo_new_statement ();				  	\
-    } while (0);
+    } while (0)
 
 /* Like match, but don't match anything if not -fopenmp
    and if spec_only, goto do_spec_only without actually matching.  */
@@ -746,7 +746,7 @@ decode_oacc_directive (void)
 	}							\
       else							\
 	undo_new_statement ();				  	\
-    } while (0);
+    } while (0)
 
 /* Like match, but set a flag simd_matched if keyword matched.  */
 #define matchds(keyword, subr, st)				\
@@ -759,7 +759,7 @@ decode_oacc_directive (void)
 	}							\
       else							\
 	undo_new_statement ();				  	\
-    } while (0);
+    } while (0)
 
 /* Like match, but don't match anything if not -fopenmp.  */
 #define matchdo(keyword, subr, st)				\
@@ -774,7 +774,7 @@ decode_oacc_directive (void)
 	}							\
       else							\
 	undo_new_statement ();				  	\
-    } while (0);
+    } while (0)
 
 static gfc_statement
 decode_omp_directive (void)
@@ -875,7 +875,7 @@ decode_omp_directive (void)
       matcho ("end do", gfc_match_omp_end_nowait, ST_OMP_END_DO);
       matchs ("end simd", gfc_match_omp_eos, ST_OMP_END_SIMD);
       matcho ("end master", gfc_match_omp_eos, ST_OMP_END_MASTER);
-      matcho ("end ordered", gfc_match_omp_eos, ST_OMP_END_ORDERED);
+      matchs ("end ordered", gfc_match_omp_eos, ST_OMP_END_ORDERED);
       matchs ("end parallel do simd", gfc_match_omp_eos,
 	      ST_OMP_END_PARALLEL_DO_SIMD);
       matcho ("end parallel do", gfc_match_omp_eos, ST_OMP_END_PARALLEL_DO);
@@ -929,14 +929,16 @@ decode_omp_directive (void)
       matcho ("master", gfc_match_omp_master, ST_OMP_MASTER);
       break;
     case 'o':
-      if (flag_openmp && gfc_match ("ordered depend (") == MATCH_YES)
+      if (gfc_match ("ordered depend (") == MATCH_YES)
 	{
 	  gfc_current_locus = old_locus;
+	  if (!flag_openmp)
+	    break;
 	  matcho ("ordered", gfc_match_omp_ordered_depend,
 		  ST_OMP_ORDERED_DEPEND);
 	}
       else
-	matcho ("ordered", gfc_match_omp_ordered, ST_OMP_ORDERED);
+	matchs ("ordered", gfc_match_omp_ordered, ST_OMP_ORDERED);
       break;
     case 'p':
       matchs ("parallel do simd", gfc_match_omp_parallel_do_simd,
@@ -2735,6 +2737,9 @@ unexpected_eof (void)
   gfc_done_2 ();
 
   longjmp (eof_buf, 1);
+
+  /* Avoids build error on systems where longjmp is not declared noreturn.  */
+  gcc_unreachable ();
 }
 
 
@@ -5740,16 +5745,28 @@ gfc_global_used (gfc_gsymbol *sym, locus *where)
       name = "MODULE";
       break;
     default:
-      gfc_internal_error ("gfc_global_used(): Bad type");
       name = NULL;
     }
 
-  if (sym->binding_label)
-    gfc_error ("Global binding name %qs at %L is already being used as a %s "
-	       "at %L", sym->binding_label, where, name, &sym->where);
+  if (name)
+    {
+      if (sym->binding_label)
+	gfc_error ("Global binding name %qs at %L is already being used "
+		   "as a %s at %L", sym->binding_label, where, name,
+		   &sym->where);
+      else
+	gfc_error ("Global name %qs at %L is already being used as "
+		   "a %s at %L", sym->name, where, name, &sym->where);
+    }
   else
-    gfc_error ("Global name %qs at %L is already being used as a %s at %L",
-	       sym->name, where, name, &sym->where);
+    {
+      if (sym->binding_label)
+	gfc_error ("Global binding name %qs at %L is already being used "
+		   "at %L", sym->binding_label, where, &sym->where);
+      else
+	gfc_error ("Global name %qs at %L is already being used at %L",
+		   sym->name, where, &sym->where);
+    }
 }
 
 
@@ -6217,6 +6234,9 @@ loop:
   /* Dump the parse tree if requested.  */
   if (flag_dump_fortran_original)
     gfc_dump_parse_tree (gfc_current_ns, stdout);
+
+  if (flag_c_prototypes)
+    gfc_dump_c_prototypes (gfc_current_ns, stdout);
 
   gfc_get_errors (NULL, &errors);
   if (s.state == COMP_MODULE || s.state == COMP_SUBMODULE)

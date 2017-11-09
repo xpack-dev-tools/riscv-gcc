@@ -33,6 +33,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "dumpfile.h"
 #include "internal-fn.h"
 #include "gomp-constants.h"
+#include "gimple.h"
 
 /* Local functions, macros and variables.  */
 static const char *op_symbol (const_tree);
@@ -248,8 +249,10 @@ dump_decl_name (pretty_printer *pp, tree node, dump_flags_t flags)
 {
   if (DECL_NAME (node))
     {
-      if ((flags & TDF_ASMNAME) && DECL_ASSEMBLER_NAME_SET_P (node))
-	pp_tree_identifier (pp, DECL_ASSEMBLER_NAME (node));
+      if ((flags & TDF_ASMNAME)
+	  && HAS_DECL_ASSEMBLER_NAME_P (node)
+	  && DECL_ASSEMBLER_NAME_SET_P (node))
+	pp_tree_identifier (pp, DECL_ASSEMBLER_NAME_RAW (node));
       /* For DECL_NAMELESS names look for embedded uids in the
 	 names and sanitize them for TDF_NOUID.  */
       else if ((flags & TDF_NOUID) && DECL_NAMELESS (node))
@@ -1709,7 +1712,7 @@ dump_generic_node (pretty_printer *pp, tree node, int spc, dump_flags_t flags,
 	pp_unsigned_wide_integer (pp, tree_to_uhwi (node));
       else
 	{
-	  wide_int val = node;
+	  wide_int val = wi::to_wide (node);
 
 	  if (wi::neg_p (val, TYPE_SIGN (TREE_TYPE (node))))
 	    {
@@ -2818,8 +2821,7 @@ dump_generic_node (pretty_printer *pp, tree node, int spc, dump_flags_t flags,
       dump_generic_node (pp, CHREC_LEFT (node), spc, flags, false);
       pp_string (pp, ", +, ");
       dump_generic_node (pp, CHREC_RIGHT (node), spc, flags, false);
-      pp_string (pp, "}_");
-      dump_generic_node (pp, CHREC_VAR (node), spc, flags, false);
+      pp_printf (pp, "}_%u", CHREC_VARIABLE (node));
       is_stmt = false;
       break;
 
@@ -3970,18 +3972,17 @@ newline_and_indent (pretty_printer *pp, int spc)
   INDENT (spc);
 }
 
-/* Handle a %K format for TEXT.  Separate from default_tree_printer so
-   it can also be used in front ends.
-   %K: a statement, from which EXPR_LOCATION and TREE_BLOCK will be recorded.
-*/
+/* Handle the %K format for TEXT.  Separate from default_tree_printer
+   so it can also be used in front ends.
+   Argument is a statement from which EXPR_LOCATION and TREE_BLOCK will
+   be recorded.  */
 
 void
-percent_K_format (text_info *text)
+percent_K_format (text_info *text, tree t)
 {
-  tree t = va_arg (*text->args_ptr, tree), block;
   text->set_location (0, EXPR_LOCATION (t), true);
   gcc_assert (pp_ti_abstract_origin (text) != NULL);
-  block = TREE_BLOCK (t);
+  tree block = TREE_BLOCK (t);
   *pp_ti_abstract_origin (text) = NULL;
 
   if (in_lto_p)
@@ -4047,7 +4048,7 @@ dump_function_header (FILE *dump_file, tree fdecl, dump_flags_t flags)
   struct cgraph_node *node = cgraph_node::get (fdecl);
   struct function *fun = DECL_STRUCT_FUNCTION (fdecl);
 
-  dname = lang_hooks.decl_printable_name (fdecl, 2);
+  dname = lang_hooks.decl_printable_name (fdecl, 1);
 
   if (DECL_ASSEMBLER_NAME_SET_P (fdecl))
     aname = (IDENTIFIER_POINTER

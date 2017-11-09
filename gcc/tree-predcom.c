@@ -1069,7 +1069,9 @@ add_ref_to_chain (chain_p chain, dref ref)
       chain->has_max_use_after = false;
     }
 
-  if (ref->distance == chain->length
+  /* Don't set the flag for store-store chain since there is no use.  */
+  if (chain->type != CT_STORE_STORE
+      && ref->distance == chain->length
       && ref->pos > root->pos)
     chain->has_max_use_after = true;
 
@@ -1653,7 +1655,8 @@ is_inv_store_elimination_chain (struct loop *loop, chain_p chain)
   /* If loop iterates for unknown times or fewer times than chain->lenght,
      we still need to setup root variable and propagate it with PHI node.  */
   tree niters = number_of_latch_executions (loop);
-  if (TREE_CODE (niters) != INTEGER_CST || wi::leu_p (niters, chain->length))
+  if (TREE_CODE (niters) != INTEGER_CST
+      || wi::leu_p (wi::to_wide (niters), chain->length))
     return false;
 
   /* Check stores in chain for elimination if they only store loop invariant
@@ -2938,7 +2941,7 @@ prepare_finalizers_chain (struct loop *loop, chain_p chain)
 
       if (TREE_CODE (niters) != INTEGER_CST && TREE_CODE (niters) != SSA_NAME)
 	{
-	  niters = copy_node (niters);
+	  niters = unshare_expr (niters);
 	  niters = force_gimple_operand (niters, &stmts, true, NULL);
 	  if (stmts)
 	    {
@@ -2981,11 +2984,11 @@ prepare_finalizers (struct loop *loop, vec<chain_p> chains)
       if (prepare_finalizers_chain (loop, chain))
 	{
 	  i++;
-	  /* We don't corrupt loop closed ssa form for store elimination
-	     chain if eliminated stores only store loop invariant values
-	     into memory.  */
-	  if (!chain->inv_store_elimination)
-	    loop_closed_ssa |= (!chain->inv_store_elimination);
+	  /* Be conservative, assume loop closed ssa form is corrupted
+	     by store-store chain.  Though it's not always the case if
+	     eliminated stores only store loop invariant values into
+	     memory.  */
+	  loop_closed_ssa = true;
 	}
       else
 	{

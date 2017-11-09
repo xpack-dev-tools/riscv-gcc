@@ -52,6 +52,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-dfa.h"
 #include "ipa-chkp.h"
 #include "params.h"
+#include "stringpool.h"
+#include "attribs.h"
 
 /*  Pointer Bounds Checker instruments code with memory checks to find
     out-of-bounds memory accesses.  Checks are performed by computing
@@ -2274,8 +2276,7 @@ chkp_build_returned_bound (gcall *call)
      it separately.  */
   if (fndecl
       && DECL_BUILT_IN_CLASS (fndecl) == BUILT_IN_NORMAL
-      && (DECL_FUNCTION_CODE (fndecl) == BUILT_IN_ALLOCA
-	  || DECL_FUNCTION_CODE (fndecl) == BUILT_IN_ALLOCA_WITH_ALIGN))
+      && ALLOCA_FUNCTION_CODE_P (DECL_FUNCTION_CODE (fndecl)))
     {
       tree size = gimple_call_arg (call, 0);
       gimple_stmt_iterator iter = gsi_for_stmt (call);
@@ -3194,6 +3195,9 @@ chkp_get_bounds_for_decl_addr (tree decl)
 	       || TREE_PUBLIC (decl))))
       && !flag_chkp_incomplete_type)
       return chkp_get_zero_bounds ();
+
+  if (VOID_TYPE_P (TREE_TYPE (decl)))
+    return chkp_get_zero_bounds ();
 
   if (flag_chkp_use_static_bounds
       && VAR_P (decl)

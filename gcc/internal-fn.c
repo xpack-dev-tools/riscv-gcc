@@ -39,6 +39,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "stor-layout.h"
 #include "dojump.h"
 #include "expr.h"
+#include "stringpool.h"
+#include "attribs.h"
 #include "asan.h"
 #include "ubsan.h"
 #include "recog.h"
@@ -483,7 +485,7 @@ get_min_precision (tree arg, signop sign)
 	  p = wi::min_precision (w, sign);
 	}
       else
-	p = wi::min_precision (arg, sign);
+	p = wi::min_precision (wi::to_wide (arg), sign);
       return MIN (p, prec);
     }
   while (CONVERT_EXPR_P (arg)
@@ -566,9 +568,10 @@ expand_arith_set_overflow (tree lhs, rtx target)
 
 static void
 expand_arith_overflow_result_store (tree lhs, rtx target,
-				    machine_mode mode, rtx res)
+				    scalar_int_mode mode, rtx res)
 {
-  machine_mode tgtmode = GET_MODE_INNER (GET_MODE (target));
+  scalar_int_mode tgtmode
+    = as_a <scalar_int_mode> (GET_MODE_INNER (GET_MODE (target)));
   rtx lres = res;
   if (tgtmode != mode)
     {
@@ -643,7 +646,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
   do_pending_stack_adjust ();
   rtx op0 = expand_normal (arg0);
   rtx op1 = expand_normal (arg1);
-  machine_mode mode = TYPE_MODE (TREE_TYPE (arg0));
+  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (TREE_TYPE (arg0));
   int prec = GET_MODE_PRECISION (mode);
   rtx sgn = immed_wide_int_const (wi::min_value (prec, SIGNED), mode);
   bool do_xor = false;
@@ -1095,7 +1098,7 @@ expand_neg_overflow (location_t loc, tree lhs, tree arg1, bool is_ubsan,
   do_pending_stack_adjust ();
   op1 = expand_normal (arg1);
 
-  machine_mode mode = TYPE_MODE (TREE_TYPE (arg1));
+  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (TREE_TYPE (arg1));
   if (lhs)
     {
       target = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
@@ -1190,7 +1193,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
   op0 = expand_normal (arg0);
   op1 = expand_normal (arg1);
 
-  machine_mode mode = TYPE_MODE (TREE_TYPE (arg0));
+  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (TREE_TYPE (arg0));
   bool uns = unsr_p;
   if (lhs)
     {
@@ -1457,15 +1460,14 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
     {
       struct separate_ops ops;
       int prec = GET_MODE_PRECISION (mode);
-      machine_mode hmode = mode_for_size (prec / 2, MODE_INT, 1);
+      scalar_int_mode hmode, wmode;
       ops.op0 = make_tree (type, op0);
       ops.op1 = make_tree (type, op1);
       ops.op2 = NULL_TREE;
       ops.location = loc;
-      if (GET_MODE_2XWIDER_MODE (mode) != VOIDmode
-	  && targetm.scalar_mode_supported_p (GET_MODE_2XWIDER_MODE (mode)))
+      if (GET_MODE_2XWIDER_MODE (mode).exists (&wmode)
+	  && targetm.scalar_mode_supported_p (wmode))
 	{
-	  machine_mode wmode = GET_MODE_2XWIDER_MODE (mode);
 	  ops.code = WIDEN_MULT_EXPR;
 	  ops.type
 	    = build_nonstandard_integer_type (GET_MODE_PRECISION (wmode), uns);
@@ -1493,7 +1495,8 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 				       profile_probability::very_likely ());
 	    }
 	}
-      else if (hmode != BLKmode && 2 * GET_MODE_PRECISION (hmode) == prec)
+      else if (int_mode_for_size (prec / 2, 1).exists (&hmode)
+	       && 2 * GET_MODE_PRECISION (hmode) == prec)
 	{
 	  rtx_code_label *large_op0 = gen_label_rtx ();
 	  rtx_code_label *small_op0_large_op1 = gen_label_rtx ();
@@ -1767,8 +1770,8 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 		}
 
 	      /* At this point hipart{0,1} are both in [-1, 0].  If they are
-		 the same, overflow happened if res is negative, if they are
-		 different, overflow happened if res is positive.  */
+		 the same, overflow happened if res is non-positive, if they
+		 are different, overflow happened if res is positive.  */
 	      if (op0_sign != 1 && op1_sign != 1 && op0_sign != op1_sign)
 		emit_jump (hipart_different);
 	      else if (op0_sign == 1 || op1_sign == 1)
@@ -1776,7 +1779,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 					 NULL_RTX, NULL, hipart_different,
 					 profile_probability::even ());
 
-	      do_compare_rtx_and_jump (res, const0_rtx, LT, false, mode,
+	      do_compare_rtx_and_jump (res, const0_rtx, LE, false, mode,
 				       NULL_RTX, NULL, do_error,
 				       profile_probability::very_unlikely ());
 	      emit_jump (done_label);
@@ -2117,7 +2120,7 @@ expand_arith_overflow (enum tree_code code, gimple *stmt)
 	  /* The infinity precision result will always fit into result.  */
 	  rtx target = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
 	  write_complex_part (target, const0_rtx, true);
-	  machine_mode mode = TYPE_MODE (type);
+	  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (type);
 	  struct separate_ops ops;
 	  ops.code = code;
 	  ops.type = type;
@@ -2170,7 +2173,7 @@ expand_arith_overflow (enum tree_code code, gimple *stmt)
       if (orig_precres == precres && precop <= BITS_PER_WORD)
 	{
 	  int p = MAX (min_precision, precop);
-	  machine_mode m = smallest_mode_for_size (p, MODE_INT);
+	  scalar_int_mode m = smallest_int_mode_for_size (p);
 	  tree optype = build_nonstandard_integer_type (GET_MODE_PRECISION (m),
 							uns0_p && uns1_p
 							&& unsr_p);
@@ -2212,7 +2215,7 @@ expand_arith_overflow (enum tree_code code, gimple *stmt)
       if (orig_precres == precres)
 	{
 	  int p = MAX (prec0, prec1);
-	  machine_mode m = smallest_mode_for_size (p, MODE_INT);
+	  scalar_int_mode m = smallest_int_mode_for_size (p);
 	  tree optype = build_nonstandard_integer_type (GET_MODE_PRECISION (m),
 							uns0_p && uns1_p
 							&& unsr_p);
@@ -2603,7 +2606,15 @@ expand_direct_optab_fn (internal_fn fn, gcall *stmt, direct_optab optab,
   tree lhs = gimple_call_lhs (stmt);
   tree lhs_type = TREE_TYPE (lhs);
   rtx lhs_rtx = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
-  create_output_operand (&ops[0], lhs_rtx, insn_data[icode].operand[0].mode);
+
+  /* Do not assign directly to a promoted subreg, since there is no
+     guarantee that the instruction will leave the upper bits of the
+     register in the state required by SUBREG_PROMOTED_SIGN.  */
+  rtx dest = lhs_rtx;
+  if (GET_CODE (dest) == SUBREG && SUBREG_PROMOTED_VAR_P (dest))
+    dest = NULL_RTX;
+
+  create_output_operand (&ops[0], dest, insn_data[icode].operand[0].mode);
 
   for (unsigned int i = 0; i < nargs; ++i)
     {

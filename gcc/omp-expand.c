@@ -58,7 +58,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple-pretty-print.h"
 #include "hsa-common.h"
 #include "debug.h"
-
+#include "stringpool.h"
+#include "attribs.h"
 
 /* OMP region information.  Every parallel and workshare
    directive is enclosed between two markers, the OMP_* directive
@@ -498,6 +499,42 @@ parallel_needs_hsa_kernel_p (struct omp_region *region)
   return false;
 }
 
+/* Change DECL_CONTEXT of CHILD_FNDECL to that of the parent function.
+   Add CHILD_FNDECL to decl chain of the supercontext of the block
+   ENTRY_BLOCK - this is the block which originally contained the
+   code from which CHILD_FNDECL was created.
+   
+   Together, these actions ensure that the debug info for the outlined
+   function will be emitted with the correct lexical scope.  */
+
+static void
+adjust_context_and_scope (tree entry_block, tree child_fndecl)
+{
+  if (entry_block != NULL_TREE && TREE_CODE (entry_block) == BLOCK)
+    {
+      tree b = BLOCK_SUPERCONTEXT (entry_block);
+
+      if (TREE_CODE (b) == BLOCK)
+        {
+	  tree parent_fndecl;
+
+	  /* Follow supercontext chain until the parent fndecl
+	     is found.  */
+	  for (parent_fndecl = BLOCK_SUPERCONTEXT (b);
+	       TREE_CODE (parent_fndecl) == BLOCK;
+	       parent_fndecl = BLOCK_SUPERCONTEXT (parent_fndecl))
+	    ;
+
+	  gcc_assert (TREE_CODE (parent_fndecl) == FUNCTION_DECL);
+
+	  DECL_CONTEXT (child_fndecl) = parent_fndecl;
+
+	  DECL_CHAIN (child_fndecl) = BLOCK_VARS (b);
+	  BLOCK_VARS (b) = child_fndecl;
+	}
+    }
+}
+
 /* Build the function calls to GOMP_parallel_start etc to actually
    generate the parallel operation.  REGION is the parallel region
    being expanded.  BB is the block where to insert the code.  WS_ARGS
@@ -666,6 +703,8 @@ expand_parallel_call (struct omp_region *region, basic_block bb,
     t1 = build_fold_addr_expr (t);
   tree child_fndecl = gimple_omp_parallel_child_fn (entry_stmt);
   t2 = build_fold_addr_expr (child_fndecl);
+
+  adjust_context_and_scope (gimple_block (entry_stmt), child_fndecl);
 
   vec_alloc (args, 4 + vec_safe_length (ws_args));
   args->quick_push (t2);
@@ -1360,6 +1399,7 @@ expand_omp_taskreg (struct omp_region *region)
 
       if (optimize)
 	optimize_omp_library_calls (entry_stmt);
+      counts_to_freqs ();
       cgraph_edge::rebuild_edges ();
 
       /* Some EH regions might become dead, see PR34608.  If
@@ -4729,24 +4769,28 @@ expand_omp_simd (struct omp_region *region, struct omp_for_data *fd)
 	      tree itype2 = TREE_TYPE (fd->loops[i - 1].v);
 	      if (POINTER_TYPE_P (itype2))
 		itype2 = signed_type_for (itype2);
+	      t = fold_convert (itype2, fd->loops[i - 1].step);
+	      t = force_gimple_operand_gsi (&gsi, t, true, NULL_TREE, true,
+					    GSI_SAME_STMT);
 	      t = build3 (COND_EXPR, itype2,
 			  build2 (fd->loops[i].cond_code, boolean_type_node,
 				  fd->loops[i].v,
 				  fold_convert (itype, fd->loops[i].n2)),
-			  build_int_cst (itype2, 0),
-			  fold_convert (itype2, fd->loops[i - 1].step));
+			  build_int_cst (itype2, 0), t);
 	      if (POINTER_TYPE_P (TREE_TYPE (fd->loops[i - 1].v)))
 		t = fold_build_pointer_plus (fd->loops[i - 1].v, t);
 	      else
 		t = fold_build2 (PLUS_EXPR, itype2, fd->loops[i - 1].v, t);
 	      expand_omp_build_assign (&gsi, fd->loops[i - 1].v, t);
 
+	      t = fold_convert (itype, fd->loops[i].n1);
+	      t = force_gimple_operand_gsi (&gsi, t, true, NULL_TREE, true,
+					    GSI_SAME_STMT);
 	      t = build3 (COND_EXPR, itype,
 			  build2 (fd->loops[i].cond_code, boolean_type_node,
 				  fd->loops[i].v,
 				  fold_convert (itype, fd->loops[i].n2)),
-			  fd->loops[i].v,
-			  fold_convert (itype, fd->loops[i].n1));
+			  fd->loops[i].v, t);
 	      expand_omp_build_assign (&gsi, fd->loops[i].v, t);
 	    }
 	}
@@ -4851,8 +4895,7 @@ expand_omp_simd (struct omp_region *region, struct omp_for_data *fd)
       /* If not -fno-tree-loop-vectorize, hint that we want to vectorize
 	 the loop.  */
       if ((flag_tree_loop_vectorize
-	   || (!global_options_set.x_flag_tree_loop_vectorize
-	       && !global_options_set.x_flag_tree_vectorize))
+	   || !global_options_set.x_flag_tree_loop_vectorize)
 	  && flag_tree_loop_optimize
 	  && loop->safelen > 1)
 	{
@@ -5329,6 +5372,8 @@ expand_oacc_for (struct omp_region *region, struct omp_for_data *fd)
     }
   if (POINTER_TYPE_P (diff_type) || TYPE_UNSIGNED (diff_type))
     diff_type = signed_type_for (diff_type);
+  if (TYPE_PRECISION (diff_type) < TYPE_PRECISION (integer_type_node))
+    diff_type = integer_type_node;
 
   basic_block entry_bb = region->entry; /* BB ending in OMP_FOR */
   basic_block exit_bb = region->exit; /* BB ending in OMP_RETURN */
@@ -5664,9 +5709,16 @@ expand_oacc_for (struct omp_region *region, struct omp_for_data *fd)
 	  cont_bb = split->dest;
 
 	  split->flags ^= EDGE_FALLTHRU | EDGE_FALSE_VALUE;
-	  make_edge (elem_cont_bb, elem_body_bb, EDGE_TRUE_VALUE);
+	  split->probability = profile_probability::unlikely ().guessed ();
+	  edge latch_edge
+	    = make_edge (elem_cont_bb, elem_body_bb, EDGE_TRUE_VALUE);
+	  latch_edge->probability = profile_probability::likely ().guessed ();
 
-	  make_edge (body_bb, cont_bb, EDGE_FALSE_VALUE);
+	  edge skip_edge = make_edge (body_bb, cont_bb, EDGE_FALSE_VALUE);
+	  skip_edge->probability = profile_probability::unlikely ().guessed ();
+	  edge loop_entry_edge = EDGE_SUCC (body_bb, 1 - skip_edge->dest_idx);
+	  loop_entry_edge->probability
+	    = profile_probability::likely ().guessed ();
 
 	  gsi = gsi_for_stmt (cont_stmt);
 	}
@@ -5719,7 +5771,9 @@ expand_oacc_for (struct omp_region *region, struct omp_for_data *fd)
 
 	  /* Fixup edges from bottom_bb.  */
 	  split->flags ^= EDGE_FALLTHRU | EDGE_FALSE_VALUE;
-	  make_edge (bottom_bb, head_bb, EDGE_TRUE_VALUE);
+	  split->probability = profile_probability::unlikely ().guessed ();
+	  edge latch_edge = make_edge (bottom_bb, head_bb, EDGE_TRUE_VALUE);
+	  latch_edge->probability = profile_probability::likely ().guessed ();
 	}
     }
 
@@ -6728,17 +6782,18 @@ expand_omp_atomic (struct omp_region *region)
       if (exact_log2 (align) >= index)
 	{
 	  /* Atomic load.  */
+	  scalar_mode smode;
 	  if (loaded_val == stored_val
-	      && (GET_MODE_CLASS (TYPE_MODE (type)) == MODE_INT
-		  || GET_MODE_CLASS (TYPE_MODE (type)) == MODE_FLOAT)
-	      && GET_MODE_BITSIZE (TYPE_MODE (type)) <= BITS_PER_WORD
+	      && (is_int_mode (TYPE_MODE (type), &smode)
+		  || is_float_mode (TYPE_MODE (type), &smode))
+	      && GET_MODE_BITSIZE (smode) <= BITS_PER_WORD
 	      && expand_omp_atomic_load (load_bb, addr, loaded_val, index))
 	    return;
 
 	  /* Atomic store.  */
-	  if ((GET_MODE_CLASS (TYPE_MODE (type)) == MODE_INT
-	       || GET_MODE_CLASS (TYPE_MODE (type)) == MODE_FLOAT)
-	      && GET_MODE_BITSIZE (TYPE_MODE (type)) <= BITS_PER_WORD
+	  if ((is_int_mode (TYPE_MODE (type), &smode)
+	       || is_float_mode (TYPE_MODE (type), &smode))
+	      && GET_MODE_BITSIZE (smode) <= BITS_PER_WORD
 	      && store_bb == single_succ (load_bb)
 	      && first_stmt (store_bb) == store
 	      && expand_omp_atomic_store (load_bb, addr, loaded_val,

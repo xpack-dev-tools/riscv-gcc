@@ -114,8 +114,8 @@ struct target_ira
   HARD_REG_SET x_ira_no_alloc_regs;
 
   /* Array whose values are hard regset of hard registers available for
-     the allocation of given register class whose HARD_REGNO_MODE_OK
-     values for given mode are zero.  */
+     the allocation of given register class whose targetm.hard_regno_mode_ok
+     values for given mode are false.  */
   HARD_REG_SET x_ira_prohibited_class_mode_regs[N_REG_CLASSES][NUM_MACHINE_MODES];
 };
 
@@ -195,7 +195,7 @@ extern void ira_set_pseudo_classes (bool, FILE *);
 extern void ira_expand_reg_equiv (void);
 extern void ira_update_equiv_info_by_shuffle_insn (int, int, rtx_insn *);
 
-extern void ira_sort_regnos_for_alter_reg (int *, int, unsigned int *);
+extern void ira_sort_regnos_for_alter_reg (int *, int, machine_mode *);
 extern void ira_mark_allocation_change (int);
 extern void ira_mark_memory_move_deletion (int, int);
 extern bool ira_reassign_pseudos (int *, int, HARD_REG_SET, HARD_REG_SET *,

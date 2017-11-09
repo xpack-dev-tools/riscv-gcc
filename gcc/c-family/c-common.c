@@ -309,7 +309,6 @@ static bool check_case_bounds (location_t, tree, tree, tree *, tree *,
 
 static void check_nonnull_arg (void *, tree, unsigned HOST_WIDE_INT);
 static bool nonnull_check_p (tree, unsigned HOST_WIDE_INT);
-static int resort_field_decl_cmp (const void *, const void *);
 
 /* Reserved words.  The third field is a mask: keywords are disabled
    if they match the mask.
@@ -1031,8 +1030,8 @@ c_build_vec_perm_expr (location_t loc, tree v0, tree v1, tree mask,
       return error_mark_node;
     }
 
-  if (GET_MODE_BITSIZE (TYPE_MODE (TREE_TYPE (TREE_TYPE (v0))))
-      != GET_MODE_BITSIZE (TYPE_MODE (TREE_TYPE (TREE_TYPE (mask)))))
+  if (GET_MODE_BITSIZE (SCALAR_TYPE_MODE (TREE_TYPE (TREE_TYPE (v0))))
+      != GET_MODE_BITSIZE (SCALAR_TYPE_MODE (TREE_TYPE (TREE_TYPE (mask)))))
     {
       if (complain)
 	error_at (loc, "__builtin_shuffle argument vector(s) inner type "
@@ -2149,17 +2148,22 @@ tree
 c_common_fixed_point_type_for_size (unsigned int ibit, unsigned int fbit,
 				    int unsignedp, int satp)
 {
-  machine_mode mode;
+  enum mode_class mclass;
   if (ibit == 0)
-    mode = unsignedp ? UQQmode : QQmode;
+    mclass = unsignedp ? MODE_UFRACT : MODE_FRACT;
   else
-    mode = unsignedp ? UHAmode : HAmode;
+    mclass = unsignedp ? MODE_UACCUM : MODE_ACCUM;
 
-  for (; mode != VOIDmode; mode = GET_MODE_WIDER_MODE (mode))
-    if (GET_MODE_IBIT (mode) >= ibit && GET_MODE_FBIT (mode) >= fbit)
-      break;
+  opt_scalar_mode opt_mode;
+  scalar_mode mode;
+  FOR_EACH_MODE_IN_CLASS (opt_mode, mclass)
+    {
+      mode = opt_mode.require ();
+      if (GET_MODE_IBIT (mode) >= ibit && GET_MODE_FBIT (mode) >= fbit)
+	break;
+    }
 
-  if (mode == VOIDmode || !targetm.scalar_mode_supported_p (mode))
+  if (!opt_mode.exists (&mode) || !targetm.scalar_mode_supported_p (mode))
     {
       sorry ("GCC cannot support operators with integer types and "
 	     "fixed-point types that have too many integral and "
@@ -2241,15 +2245,15 @@ c_common_type_for_mode (machine_mode mode, int unsignedp)
   if (mode == TYPE_MODE (void_type_node))
     return void_type_node;
 
-  if (mode == TYPE_MODE (build_pointer_type (char_type_node)))
-    return (unsignedp
-	    ? make_unsigned_type (GET_MODE_PRECISION (mode))
-	    : make_signed_type (GET_MODE_PRECISION (mode)));
-
-  if (mode == TYPE_MODE (build_pointer_type (integer_type_node)))
-    return (unsignedp
-	    ? make_unsigned_type (GET_MODE_PRECISION (mode))
-	    : make_signed_type (GET_MODE_PRECISION (mode)));
+  if (mode == TYPE_MODE (build_pointer_type (char_type_node))
+      || mode == TYPE_MODE (build_pointer_type (integer_type_node)))
+    {
+      unsigned int precision
+	= GET_MODE_PRECISION (as_a <scalar_int_mode> (mode));
+      return (unsignedp
+	      ? make_unsigned_type (precision)
+	      : make_signed_type (precision));
+    }
 
   if (COMPLEX_MODE_P (mode))
     {
@@ -2690,9 +2694,9 @@ binary_op_error (rich_location *richloc, enum tree_code code,
     default:
       gcc_unreachable ();
     }
-  error_at_rich_loc (richloc,
-		     "invalid operands to binary %s (have %qT and %qT)",
-		     opname, type0, type1);
+  error_at (richloc,
+	    "invalid operands to binary %s (have %qT and %qT)",
+	    opname, type0, type1);
 }
 
 /* Given an expression as a tree, return its original type.  Do this
@@ -3133,7 +3137,8 @@ pointer_int_sum (location_t loc, enum tree_code resultcode,
 	 can result in a sum or difference with different type args.  */
       ptrop = build_binary_op (EXPR_LOCATION (TREE_OPERAND (intop, 1)),
 			       subcode, ptrop,
-			       convert (int_type, TREE_OPERAND (intop, 1)), 1);
+			       convert (int_type, TREE_OPERAND (intop, 1)),
+			       true);
       intop = convert (int_type, TREE_OPERAND (intop, 0));
     }
 
@@ -3153,7 +3158,7 @@ pointer_int_sum (location_t loc, enum tree_code resultcode,
 			      convert (TREE_TYPE (intop), size_exp));
     intop = convert (sizetype, t);
     if (TREE_OVERFLOW_P (intop) && !TREE_OVERFLOW (t))
-      intop = wide_int_to_tree (TREE_TYPE (intop), intop);
+      intop = wide_int_to_tree (TREE_TYPE (intop), wi::to_wide (intop));
   }
 
   /* Create the sum or difference.  */
@@ -3306,7 +3311,7 @@ c_common_truthvalue_conversion (location_t location, tree expr)
 						TREE_OPERAND (expr, 0)),
 		c_common_truthvalue_conversion (location,
 						TREE_OPERAND (expr, 1)),
-			      0);
+			      false);
       goto ret;
 
     case NEGATE_EXPR:
@@ -3457,7 +3462,7 @@ c_common_truthvalue_conversion (location_t location, tree expr)
 	c_common_truthvalue_conversion
 	       (location,
 		build_unary_op (location, IMAGPART_EXPR, t, false)),
-	       0));
+	       false));
       goto ret;
     }
 
@@ -3466,10 +3471,10 @@ c_common_truthvalue_conversion (location_t location, tree expr)
       tree fixed_zero_node = build_fixed (TREE_TYPE (expr),
 					  FCONST0 (TYPE_MODE
 						   (TREE_TYPE (expr))));
-      return build_binary_op (location, NE_EXPR, expr, fixed_zero_node, 1);
+      return build_binary_op (location, NE_EXPR, expr, fixed_zero_node, true);
     }
   else
-    return build_binary_op (location, NE_EXPR, expr, integer_zero_node, 1);
+    return build_binary_op (location, NE_EXPR, expr, integer_zero_node, true);
 
  ret:
   protected_set_expr_location (expr, location);
@@ -5496,7 +5501,7 @@ parse_optimize_options (tree args, bool attr_p)
   /* And apply them.  */
   decode_options (&global_options, &global_options_set,
 		  decoded_options, decoded_options_count,
-		  input_location, global_dc);
+		  input_location, global_dc, NULL);
 
   targetm.override_options_after_change();
 
@@ -5538,7 +5543,7 @@ attribute_fallthrough_p (tree attr)
    diagnostics.  Return true if -Wnonnull warning has been diagnosed.  */
 bool
 check_function_arguments (location_t loc, const_tree fndecl, const_tree fntype,
-			  int nargs, tree *argarray)
+			  int nargs, tree *argarray, vec<location_t> *arglocs)
 {
   bool warned_p = false;
 
@@ -5552,7 +5557,7 @@ check_function_arguments (location_t loc, const_tree fndecl, const_tree fntype,
   /* Check for errors in format strings.  */
 
   if (warn_format || warn_suggest_attribute_format)
-    check_function_format (TYPE_ATTRIBUTES (fntype), nargs, argarray);
+    check_function_format (TYPE_ATTRIBUTES (fntype), nargs, argarray, arglocs);
 
   if (warn_format)
     check_function_sentinel (fntype, nargs, argarray);
@@ -5690,6 +5695,16 @@ check_builtin_function_arguments (location_t loc, vec<location_t> arg_loc,
 
   switch (DECL_FUNCTION_CODE (fndecl))
     {
+    case BUILT_IN_ALLOCA_WITH_ALIGN_AND_MAX:
+      if (!tree_fits_uhwi_p (args[2]))
+	{
+	  error_at (ARG_LOCATION (2),
+		    "third argument to function %qE must be a constant integer",
+		    fndecl);
+	  return false;
+	}
+      /* fall through */
+
     case BUILT_IN_ALLOCA_WITH_ALIGN:
       {
 	/* Get the requested alignment (in bits) if it's a constant
@@ -5865,73 +5880,6 @@ check_builtin_function_arguments (location_t loc, vec<location_t> arg_loc,
     }
 }
 
-/* Function to help qsort sort FIELD_DECLs by name order.  */
-
-int
-field_decl_cmp (const void *x_p, const void *y_p)
-{
-  const tree *const x = (const tree *) x_p;
-  const tree *const y = (const tree *) y_p;
-
-  if (DECL_NAME (*x) == DECL_NAME (*y))
-    /* A nontype is "greater" than a type.  */
-    return (TREE_CODE (*y) == TYPE_DECL) - (TREE_CODE (*x) == TYPE_DECL);
-  if (DECL_NAME (*x) == NULL_TREE)
-    return -1;
-  if (DECL_NAME (*y) == NULL_TREE)
-    return 1;
-  if (DECL_NAME (*x) < DECL_NAME (*y))
-    return -1;
-  return 1;
-}
-
-static struct {
-  gt_pointer_operator new_value;
-  void *cookie;
-} resort_data;
-
-/* This routine compares two fields like field_decl_cmp but using the
-pointer operator in resort_data.  */
-
-static int
-resort_field_decl_cmp (const void *x_p, const void *y_p)
-{
-  const tree *const x = (const tree *) x_p;
-  const tree *const y = (const tree *) y_p;
-
-  if (DECL_NAME (*x) == DECL_NAME (*y))
-    /* A nontype is "greater" than a type.  */
-    return (TREE_CODE (*y) == TYPE_DECL) - (TREE_CODE (*x) == TYPE_DECL);
-  if (DECL_NAME (*x) == NULL_TREE)
-    return -1;
-  if (DECL_NAME (*y) == NULL_TREE)
-    return 1;
-  {
-    tree d1 = DECL_NAME (*x);
-    tree d2 = DECL_NAME (*y);
-    resort_data.new_value (&d1, resort_data.cookie);
-    resort_data.new_value (&d2, resort_data.cookie);
-    if (d1 < d2)
-      return -1;
-  }
-  return 1;
-}
-
-/* Resort DECL_SORTED_FIELDS because pointers have been reordered.  */
-
-void
-resort_sorted_fields (void *obj,
-		      void * ARG_UNUSED (orig_obj),
-		      gt_pointer_operator new_value,
-		      void *cookie)
-{
-  struct sorted_fields_type *sf = (struct sorted_fields_type *) obj;
-  resort_data.new_value = new_value;
-  resort_data.cookie = cookie;
-  qsort (&sf->elts[0], sf->len, sizeof (tree),
-	 resort_field_decl_cmp);
-}
-
 /* Subroutine of c_parse_error.
    Return the result of concatenating LHS and RHS. RHS is really
    a string literal, its first character is indicated by RHS_START and
@@ -5949,12 +5897,13 @@ catenate_strings (const char *lhs, const char *rhs_start, int rhs_size)
   return result;
 }
 
-/* Issue the error given by GMSGID, indicating that it occurred before
-   TOKEN, which had the associated VALUE.  */
+/* Issue the error given by GMSGID at RICHLOC, indicating that it occurred
+   before TOKEN, which had the associated VALUE.  */
 
 void
 c_parse_error (const char *gmsgid, enum cpp_ttype token_type,
-	       tree value, unsigned char token_flags)
+	       tree value, unsigned char token_flags,
+	       rich_location *richloc)
 {
 #define catenate_messages(M1, M2) catenate_strings ((M1), (M2), sizeof (M2))
 
@@ -5995,7 +5944,7 @@ c_parse_error (const char *gmsgid, enum cpp_ttype token_type,
       else
 	message = catenate_messages (gmsgid, " before %s'\\x%x'");
 
-      error (message, prefix, val);
+      error_at (richloc, message, prefix, val);
       free (message);
       message = NULL;
     }
@@ -6023,7 +5972,7 @@ c_parse_error (const char *gmsgid, enum cpp_ttype token_type,
   else if (token_type == CPP_NAME)
     {
       message = catenate_messages (gmsgid, " before %qE");
-      error (message, value);
+      error_at (richloc, message, value);
       free (message);
       message = NULL;
     }
@@ -6036,16 +5985,16 @@ c_parse_error (const char *gmsgid, enum cpp_ttype token_type,
   else if (token_type < N_TTYPES)
     {
       message = catenate_messages (gmsgid, " before %qs token");
-      error (message, cpp_type2name (token_type, token_flags));
+      error_at (richloc, message, cpp_type2name (token_type, token_flags));
       free (message);
       message = NULL;
     }
   else
-    error (gmsgid);
+    error_at (richloc, gmsgid);
 
   if (message)
     {
-      error (message);
+      error_at (richloc, message);
       free (message);
     }
 #undef catenate_messages
@@ -6471,10 +6420,9 @@ sync_resolve_size (tree function, vec<tree, va_gc> *params, bool fetch)
     }
 
   argtype = type = TREE_TYPE ((*params)[0]);
-  if (TREE_CODE (type) == ARRAY_TYPE)
+  if (TREE_CODE (type) == ARRAY_TYPE && c_dialect_cxx ())
     {
       /* Force array-to-pointer decay for C++.  */
-      gcc_assert (c_dialect_cxx());
       (*params)[0] = default_conversion ((*params)[0]);
       type = TREE_TYPE ((*params)[0]);
     }
@@ -6639,10 +6587,9 @@ get_atomic_generic_size (location_t loc, tree function,
 
   /* Get type of first parameter, and determine its size.  */
   type_0 = TREE_TYPE ((*params)[0]);
-  if (TREE_CODE (type_0) == ARRAY_TYPE)
+  if (TREE_CODE (type_0) == ARRAY_TYPE && c_dialect_cxx ())
     {
       /* Force array-to-pointer decay for C++.  */
-      gcc_assert (c_dialect_cxx());
       (*params)[0] = default_conversion ((*params)[0]);
       type_0 = TREE_TYPE ((*params)[0]);
     }
@@ -6681,6 +6628,12 @@ get_atomic_generic_size (location_t loc, tree function,
       /* __atomic_compare_exchange has a bool in the 4th position, skip it.  */
       if (n_param == 6 && x == 3)
         continue;
+      if (TREE_CODE (type) == ARRAY_TYPE && c_dialect_cxx ())
+	{
+	  /* Force array-to-pointer decay for C++.  */
+	  (*params)[x] = default_conversion ((*params)[x]);
+	  type = TREE_TYPE ((*params)[x]);
+	}
       if (!POINTER_TYPE_P (type))
 	{
 	  error_at (loc, "argument %d of %qE must be a pointer type", x + 1,
@@ -8001,6 +7954,164 @@ c_flt_eval_method (bool maybe_c11_only_p)
     return c_c11_flt_eval_method ();
   else
     return c_ts18661_flt_eval_method ();
+}
+
+/* An enum for get_missing_token_insertion_kind for describing the best
+   place to insert a missing token, if there is one.  */
+
+enum missing_token_insertion_kind
+{
+  MTIK_IMPOSSIBLE,
+  MTIK_INSERT_BEFORE_NEXT,
+  MTIK_INSERT_AFTER_PREV
+};
+
+/* Given a missing token of TYPE, determine if it is reasonable to
+   emit a fix-it hint suggesting the insertion of the token, and,
+   if so, where the token should be inserted relative to other tokens.
+
+   It only makes sense to do this for values of TYPE that are symbols.
+
+   Some symbols should go before the next token, e.g. in:
+     if flag)
+   we want to insert the missing '(' immediately before "flag",
+   giving:
+     if (flag)
+   rather than:
+     if( flag)
+   These use MTIK_INSERT_BEFORE_NEXT.
+
+   Other symbols should go after the previous token, e.g. in:
+     if (flag
+       do_something ();
+   we want to insert the missing ')' immediately after the "flag",
+   giving:
+     if (flag)
+       do_something ();
+   rather than:
+     if (flag
+       )do_something ();
+   These use MTIK_INSERT_AFTER_PREV.  */
+
+static enum missing_token_insertion_kind
+get_missing_token_insertion_kind (enum cpp_ttype type)
+{
+  switch (type)
+    {
+      /* Insert missing "opening" brackets immediately
+	 before the next token.  */
+    case CPP_OPEN_SQUARE:
+    case CPP_OPEN_PAREN:
+      return MTIK_INSERT_BEFORE_NEXT;
+
+      /* Insert other missing symbols immediately after
+	 the previous token.  */
+    case CPP_CLOSE_PAREN:
+    case CPP_CLOSE_SQUARE:
+    case CPP_SEMICOLON:
+    case CPP_COMMA:
+    case CPP_COLON:
+      return MTIK_INSERT_AFTER_PREV;
+
+      /* Other kinds of token don't get fix-it hints.  */
+    default:
+      return MTIK_IMPOSSIBLE;
+    }
+}
+
+/* Given RICHLOC, a location for a diagnostic describing a missing token
+   of kind TOKEN_TYPE, potentially add a fix-it hint suggesting the
+   insertion of the token.
+
+   The location of the attempted fix-it hint depends on TOKEN_TYPE:
+   it will either be:
+     (a) immediately after PREV_TOKEN_LOC, or
+
+     (b) immediately before the primary location within RICHLOC (taken to
+	 be that of the token following where the token was expected).
+
+   If we manage to add a fix-it hint, then the location of the
+   fix-it hint is likely to be more useful as the primary location
+   of the diagnostic than that of the following token, so we swap
+   these locations.
+
+   For example, given this bogus code:
+       123456789012345678901234567890
+   1 | int missing_semicolon (void)
+   2 | {
+   3 |   return 42
+   4 | }
+
+   we will emit:
+
+     "expected ';' before '}'"
+
+   RICHLOC's primary location is at the closing brace, so before "swapping"
+   we would emit the error at line 4 column 1:
+
+       123456789012345678901234567890
+   3 |   return 42  |< fix-it hint emitted for this line
+     |            ; |
+   4 | }            |< "expected ';' before '}'" emitted at this line
+     | ^            |
+
+   It's more useful for the location of the diagnostic to be at the
+   fix-it hint, so we swap the locations, so the primary location
+   is at the fix-it hint, with the old primary location inserted
+   as a secondary location, giving this, with the error at line 3
+   column 12:
+
+       123456789012345678901234567890
+   3 |   return 42   |< "expected ';' before '}'" emitted at this line,
+     |            ^  |   with fix-it hint
+   4 |            ;  |
+     | }             |< secondary range emitted here
+     | ~             |.  */
+
+void
+maybe_suggest_missing_token_insertion (rich_location *richloc,
+				       enum cpp_ttype token_type,
+				       location_t prev_token_loc)
+{
+  gcc_assert (richloc);
+
+  enum missing_token_insertion_kind mtik
+    = get_missing_token_insertion_kind (token_type);
+
+  switch (mtik)
+    {
+    default:
+      gcc_unreachable ();
+      break;
+
+    case MTIK_IMPOSSIBLE:
+      return;
+
+    case MTIK_INSERT_BEFORE_NEXT:
+      /* Attempt to add the fix-it hint before the primary location
+	 of RICHLOC.  */
+      richloc->add_fixit_insert_before (cpp_type2name (token_type, 0));
+      break;
+
+    case MTIK_INSERT_AFTER_PREV:
+      /* Attempt to add the fix-it hint after PREV_TOKEN_LOC.  */
+      richloc->add_fixit_insert_after (prev_token_loc,
+				       cpp_type2name (token_type, 0));
+      break;
+    }
+
+  /* If we were successful, use the fix-it hint's location as the
+     primary location within RICHLOC, adding the old primary location
+     back as a secondary location.  */
+  if (!richloc->seen_impossible_fixit_p ())
+    {
+      fixit_hint *hint = richloc->get_last_fixit_hint ();
+      location_t hint_loc = hint->get_start_loc ();
+      location_t old_loc = richloc->get_loc ();
+
+      richloc->set_range (line_table, 0, hint_loc, true);
+      richloc->add_range (old_loc, false);
+    }
 }
 
 #if CHECKING_P

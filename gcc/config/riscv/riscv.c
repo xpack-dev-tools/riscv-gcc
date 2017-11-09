@@ -31,6 +31,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "output.h"
 #include "alias.h"
 #include "tree.h"
+#include "stringpool.h"
+#include "attribs.h"
 #include "varasm.h"
 #include "stor-layout.h"
 #include "calls.h"
@@ -49,6 +51,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "df.h"
 #include "diagnostic.h"
 #include "builtins.h"
+#include "predict.h"
 
 /* True if X is an UNSPEC wrapper around a SYMBOL_REF or LABEL_REF.  */
 #define UNSPEC_ADDRESS_P(X)					\
@@ -215,7 +218,10 @@ struct riscv_cpu_info {
 /* Global variables for machine-dependent things.  */
 
 /* Whether unaligned accesses execute very slowly.  */
-bool riscv_slow_unaligned_access;
+bool riscv_slow_unaligned_access_p;
+
+/* Stack alignment to assume/maintain.  */
+unsigned riscv_stack_boundary;
 
 /* Which tuning parameters to use.  */
 static const struct riscv_tune_info *tune_info;
@@ -1572,6 +1578,9 @@ riscv_rtx_costs (rtx x, machine_mode mode, int outer_code, int opno ATTRIBUTE_UN
     case MULT:
       if (float_mode_p)
 	*total = tune_info->fp_mul[mode == DFmode];
+      else if (!TARGET_MUL)
+	/* Estimate the cost of a library call.  */
+	*total = COSTS_N_INSNS (speed ? 32 : 6);
       else if (GET_MODE_SIZE (mode) > UNITS_PER_WORD)
 	*total = 3 * tune_info->int_mul[0] + COSTS_N_INSNS (2);
       else if (!speed)
@@ -1592,6 +1601,9 @@ riscv_rtx_costs (rtx x, machine_mode mode, int outer_code, int opno ATTRIBUTE_UN
 
     case UDIV:
     case UMOD:
+      if (!TARGET_DIV)
+	/* Estimate the cost of a library call.  */
+	*total = COSTS_N_INSNS (speed ? 32 : 6);
       if (speed)
 	*total = tune_info->int_div[mode == DImode];
       else
@@ -2640,6 +2652,162 @@ riscv_legitimize_call_address (rtx addr)
   return addr;
 }
 
+/* Emit straight-line code to move LENGTH bytes from SRC to DEST.
+   Assume that the areas do not overlap.  */
+
+static void
+riscv_block_move_straight (rtx dest, rtx src, HOST_WIDE_INT length)
+{
+  HOST_WIDE_INT offset, delta;
+  unsigned HOST_WIDE_INT bits;
+  int i;
+  enum machine_mode mode;
+  rtx *regs;
+
+  bits = MAX (BITS_PER_UNIT,
+	      MIN (BITS_PER_WORD, MIN (MEM_ALIGN (src), MEM_ALIGN (dest))));
+
+  mode = mode_for_size (bits, MODE_INT, 0).require ();
+  delta = bits / BITS_PER_UNIT;
+
+  /* Allocate a buffer for the temporary registers.  */
+  regs = XALLOCAVEC (rtx, length / delta);
+
+  /* Load as many BITS-sized chunks as possible.  Use a normal load if
+     the source has enough alignment, otherwise use left/right pairs.  */
+  for (offset = 0, i = 0; offset + delta <= length; offset += delta, i++)
+    {
+      regs[i] = gen_reg_rtx (mode);
+      riscv_emit_move (regs[i], adjust_address (src, mode, offset));
+    }
+
+  /* Copy the chunks to the destination.  */
+  for (offset = 0, i = 0; offset + delta <= length; offset += delta, i++)
+    riscv_emit_move (adjust_address (dest, mode, offset), regs[i]);
+
+  /* Mop up any left-over bytes.  */
+  if (offset < length)
+    {
+      src = adjust_address (src, BLKmode, offset);
+      dest = adjust_address (dest, BLKmode, offset);
+      move_by_pieces (dest, src, length - offset,
+		      MIN (MEM_ALIGN (src), MEM_ALIGN (dest)), 0);
+    }
+}
+
+/* Helper function for doing a loop-based block operation on memory
+   reference MEM.  Each iteration of the loop will operate on LENGTH
+   bytes of MEM.
+
+   Create a new base register for use within the loop and point it to
+   the start of MEM.  Create a new memory reference that uses this
+   register.  Store them in *LOOP_REG and *LOOP_MEM respectively.  */
+
+static void
+riscv_adjust_block_mem (rtx mem, HOST_WIDE_INT length,
+		       rtx *loop_reg, rtx *loop_mem)
+{
+  *loop_reg = copy_addr_to_reg (XEXP (mem, 0));
+
+  /* Although the new mem does not refer to a known location,
+     it does keep up to LENGTH bytes of alignment.  */
+  *loop_mem = change_address (mem, BLKmode, *loop_reg);
+  set_mem_align (*loop_mem, MIN (MEM_ALIGN (mem), length * BITS_PER_UNIT));
+}
+
+/* Move LENGTH bytes from SRC to DEST using a loop that moves BYTES_PER_ITER
+   bytes at a time.  LENGTH must be at least BYTES_PER_ITER.  Assume that
+   the memory regions do not overlap.  */
+
+static void
+riscv_block_move_loop (rtx dest, rtx src, HOST_WIDE_INT length,
+		      HOST_WIDE_INT bytes_per_iter)
+{
+  rtx label, src_reg, dest_reg, final_src, test;
+  HOST_WIDE_INT leftover;
+
+  leftover = length % bytes_per_iter;
+  length -= leftover;
+
+  /* Create registers and memory references for use within the loop.  */
+  riscv_adjust_block_mem (src, bytes_per_iter, &src_reg, &src);
+  riscv_adjust_block_mem (dest, bytes_per_iter, &dest_reg, &dest);
+
+  /* Calculate the value that SRC_REG should have after the last iteration
+     of the loop.  */
+  final_src = expand_simple_binop (Pmode, PLUS, src_reg, GEN_INT (length),
+				   0, 0, OPTAB_WIDEN);
+
+  /* Emit the start of the loop.  */
+  label = gen_label_rtx ();
+  emit_label (label);
+
+  /* Emit the loop body.  */
+  riscv_block_move_straight (dest, src, bytes_per_iter);
+
+  /* Move on to the next block.  */
+  riscv_emit_move (src_reg, plus_constant (Pmode, src_reg, bytes_per_iter));
+  riscv_emit_move (dest_reg, plus_constant (Pmode, dest_reg, bytes_per_iter));
+
+  /* Emit the loop condition.  */
+  test = gen_rtx_NE (VOIDmode, src_reg, final_src);
+  if (Pmode == DImode)
+    emit_jump_insn (gen_cbranchdi4 (test, src_reg, final_src, label));
+  else
+    emit_jump_insn (gen_cbranchsi4 (test, src_reg, final_src, label));
+
+  /* Mop up any left-over bytes.  */
+  if (leftover)
+    riscv_block_move_straight (dest, src, leftover);
+  else
+    emit_insn(gen_nop ());
+}
+
+/* Expand a movmemsi instruction, which copies LENGTH bytes from
+   memory reference SRC to memory reference DEST.  */
+
+bool
+riscv_expand_block_move (rtx dest, rtx src, rtx length)
+{
+  if (CONST_INT_P (length))
+    {
+      HOST_WIDE_INT factor, align;
+
+      align = MIN (MIN (MEM_ALIGN (src), MEM_ALIGN (dest)), BITS_PER_WORD);
+      factor = BITS_PER_WORD / align;
+
+      if (optimize_function_for_size_p (cfun)
+	  && INTVAL (length) * factor * UNITS_PER_WORD > MOVE_RATIO (false))
+	return false;
+
+      if (INTVAL (length) <= RISCV_MAX_MOVE_BYTES_STRAIGHT / factor)
+	{
+	  riscv_block_move_straight (dest, src, INTVAL (length));
+	  return true;
+	}
+      else if (optimize && align >= BITS_PER_WORD)
+	{
+	  unsigned min_iter_words
+	    = RISCV_MAX_MOVE_BYTES_PER_LOOP_ITER / UNITS_PER_WORD;
+	  unsigned iter_words = min_iter_words;
+	  HOST_WIDE_INT bytes = INTVAL (length), words = bytes / UNITS_PER_WORD;
+
+	  /* Lengthen the loop body if it shortens the tail.  */
+	  for (unsigned i = min_iter_words; i < min_iter_words * 2 - 1; i++)
+	    {
+	      unsigned cur_cost = iter_words + words % iter_words;
+	      unsigned new_cost = i + words % i;
+	      if (new_cost <= cur_cost)
+		iter_words = i;
+	    }
+
+	  riscv_block_move_loop (dest, src, bytes, iter_words * UNITS_PER_WORD);
+	  return true;
+	}
+    }
+  return false;
+}
+
 /* Print symbolic operand OP, which is part of a HIGH or LO_SUM
    in context CONTEXT.  HI_RELOC indicates a high-part reloc.  */
 
@@ -2732,7 +2900,7 @@ riscv_memmodel_needs_release_fence (enum memmodel model)
    'A'	Print the atomic operation suffix for memory model OP.
    'F'	Print a FENCE if the memory model requires a release.
    'z'	Print x0 if OP is zero, otherwise print OP normally.
-   'i'	Print i if the operand is not a register. */
+   'i'	Print i if the operand is not a register.  */
 
 static void
 riscv_print_operand (FILE *file, rtx op, int letter)
@@ -2853,6 +3021,22 @@ riscv_in_small_data_p (const_tree x)
     }
 
   return riscv_size_ok_for_small_data_p (int_size_in_bytes (TREE_TYPE (x)));
+}
+
+/* Switch to the appropriate section for output of DECL.  */
+
+static section *
+riscv_select_section (tree decl, int reloc,
+		      unsigned HOST_WIDE_INT align)
+{
+  switch (categorize_decl_for_section (decl, reloc))
+    {
+    case SECCAT_SRODATA:
+      return get_named_section (decl, ".srodata", reloc);
+
+    default:
+      return default_elf_select_section (decl, reloc, align);
+    }
 }
 
 /* Return a section for X, handling small data. */
@@ -3538,19 +3722,44 @@ riscv_can_use_return_insn (void)
   return reload_completed && cfun->machine->frame.total_size == 0;
 }
 
+/* Implement TARGET_SECONDARY_MEMORY_NEEDED.
+
+   When floating-point registers are wider than integer ones, moves between
+   them must go through memory.  */
+
+static bool
+riscv_secondary_memory_needed (machine_mode mode, reg_class_t class1,
+			       reg_class_t class2)
+{
+  return (GET_MODE_SIZE (mode) > UNITS_PER_WORD
+	  && (class1 == FP_REGS) != (class2 == FP_REGS));
+}
+
 /* Implement TARGET_REGISTER_MOVE_COST.  */
 
 static int
 riscv_register_move_cost (machine_mode mode,
 			  reg_class_t from, reg_class_t to)
 {
-  return SECONDARY_MEMORY_NEEDED (from, to, mode) ? 8 : 2;
+  return riscv_secondary_memory_needed (mode, from, to) ? 8 : 2;
 }
 
-/* Return true if register REGNO can store a value of mode MODE.  */
+/* Implement TARGET_HARD_REGNO_NREGS.  */
 
-bool
-riscv_hard_regno_mode_ok_p (unsigned int regno, machine_mode mode)
+static unsigned int
+riscv_hard_regno_nregs (unsigned int regno, machine_mode mode)
+{
+  if (FP_REG_P (regno))
+    return (GET_MODE_SIZE (mode) + UNITS_PER_FP_REG - 1) / UNITS_PER_FP_REG;
+
+  /* All other registers are word-sized.  */
+  return (GET_MODE_SIZE (mode) + UNITS_PER_WORD - 1) / UNITS_PER_WORD;
+}
+
+/* Implement TARGET_HARD_REGNO_MODE_OK.  */
+
+static bool
+riscv_hard_regno_mode_ok (unsigned int regno, machine_mode mode)
 {
   unsigned int nregs = riscv_hard_regno_nregs (regno, mode);
 
@@ -3586,16 +3795,17 @@ riscv_hard_regno_mode_ok_p (unsigned int regno, machine_mode mode)
   return true;
 }
 
-/* Implement HARD_REGNO_NREGS.  */
+/* Implement TARGET_MODES_TIEABLE_P.
 
-unsigned int
-riscv_hard_regno_nregs (int regno, machine_mode mode)
+   Don't allow floating-point modes to be tied, since type punning of
+   single-precision and double-precision is implementation defined.  */
+
+static bool
+riscv_modes_tieable_p (machine_mode mode1, machine_mode mode2)
 {
-  if (FP_REG_P (regno))
-    return (GET_MODE_SIZE (mode) + UNITS_PER_FP_REG - 1) / UNITS_PER_FP_REG;
-
-  /* All other registers are word-sized.  */
-  return (GET_MODE_SIZE (mode) + UNITS_PER_WORD - 1) / UNITS_PER_WORD;
+  return (mode1 == mode2
+	  || !(GET_MODE_CLASS (mode1) == MODE_FLOAT
+	       && GET_MODE_CLASS (mode2) == MODE_FLOAT));
 }
 
 /* Implement CLASS_MAX_NREGS.  */
@@ -3760,8 +3970,8 @@ riscv_option_override (void)
      for size.  For architectures that trap and emulate unaligned accesses,
      the performance cost is too great, even for -Os.  Similarly, if
      -m[no-]strict-align is left unspecified, heed -mtune's advice.  */
-  riscv_slow_unaligned_access = (cpu->tune_info->slow_unaligned_access
-				 || TARGET_STRICT_ALIGN);
+  riscv_slow_unaligned_access_p = (cpu->tune_info->slow_unaligned_access
+				   || TARGET_STRICT_ALIGN);
   if ((target_flags_explicit & MASK_STRICT_ALIGN) == 0
       && cpu->tune_info->slow_unaligned_access)
     target_flags |= MASK_STRICT_ALIGN;
@@ -3791,6 +4001,20 @@ riscv_option_override (void)
   /* We do not yet support ILP32 on RV64.  */
   if (BITS_PER_WORD != POINTER_SIZE)
     error ("ABI requires -march=rv%d", POINTER_SIZE);
+
+  /* Validate -mpreferred-stack-boundary= value.  */
+  riscv_stack_boundary = ABI_STACK_BOUNDARY;
+  if (riscv_preferred_stack_boundary_arg)
+    {
+      int min = ctz_hwi (MIN_STACK_BOUNDARY / 8);
+      int max = 8;
+
+      if (!IN_RANGE (riscv_preferred_stack_boundary_arg, min, max))
+	error ("-mpreferred-stack-boundary=%d must be between %d and %d",
+	       riscv_preferred_stack_boundary_arg, min, max);
+
+      riscv_stack_boundary = 8 << riscv_preferred_stack_boundary_arg;
+    }
 }
 
 /* Implement TARGET_CONDITIONAL_REGISTER_USAGE.  */
@@ -3813,6 +4037,13 @@ riscv_conditional_register_usage (void)
     {
       for (int regno = FP_REG_FIRST; regno <= FP_REG_LAST; regno++)
 	fixed_regs[regno] = call_used_regs[regno] = 1;
+    }
+
+  /* In the soft-float ABI, there are no callee-saved FP registers.  */
+  if (UNITS_PER_FP_ARG == 0)
+    {
+      for (int regno = FP_REG_FIRST; regno <= FP_REG_LAST; regno++)
+	call_used_regs[regno] = 1;
     }
 }
 
@@ -3996,6 +4227,33 @@ riscv_cannot_copy_insn_p (rtx_insn *insn)
   return recog_memoized (insn) >= 0 && get_attr_cannot_copy (insn);
 }
 
+/* Implement TARGET_SLOW_UNALIGNED_ACCESS.  */
+
+static bool
+riscv_slow_unaligned_access (machine_mode, unsigned int)
+{
+  return riscv_slow_unaligned_access_p;
+}
+
+/* Implement TARGET_CAN_CHANGE_MODE_CLASS.  */
+
+static bool
+riscv_can_change_mode_class (machine_mode, machine_mode, reg_class_t rclass)
+{
+  return !reg_classes_intersect_p (FP_REGS, rclass);
+}
+
+
+/* Implement TARGET_CONSTANT_ALIGNMENT.  */
+
+static HOST_WIDE_INT
+riscv_constant_alignment (const_tree exp, HOST_WIDE_INT align)
+{
+  if (TREE_CODE (exp) == STRING_CST || TREE_CODE (exp) == CONSTRUCTOR)
+    return MAX (align, BITS_PER_WORD);
+  return align;
+}
+
 /* Initialize the GCC target structure.  */
 #undef TARGET_ASM_ALIGNED_HI_OP
 #define TARGET_ASM_ALIGNED_HI_OP "\t.half\t"
@@ -4099,6 +4357,12 @@ riscv_cannot_copy_insn_p (rtx_insn *insn)
 #undef TARGET_IN_SMALL_DATA_P
 #define TARGET_IN_SMALL_DATA_P riscv_in_small_data_p
 
+#undef TARGET_HAVE_SRODATA_SECTION
+#define TARGET_HAVE_SRODATA_SECTION true
+
+#undef TARGET_ASM_SELECT_SECTION
+#define TARGET_ASM_SELECT_SECTION riscv_select_section
+
 #undef TARGET_ASM_SELECT_RTX_SECTION
 #define TARGET_ASM_SELECT_RTX_SECTION  riscv_elf_select_rtx_section
 
@@ -4125,6 +4389,26 @@ riscv_cannot_copy_insn_p (rtx_insn *insn)
 
 #undef TARGET_EXPAND_BUILTIN
 #define TARGET_EXPAND_BUILTIN riscv_expand_builtin
+
+#undef TARGET_HARD_REGNO_NREGS
+#define TARGET_HARD_REGNO_NREGS riscv_hard_regno_nregs
+#undef TARGET_HARD_REGNO_MODE_OK
+#define TARGET_HARD_REGNO_MODE_OK riscv_hard_regno_mode_ok
+
+#undef TARGET_MODES_TIEABLE_P
+#define TARGET_MODES_TIEABLE_P riscv_modes_tieable_p
+
+#undef TARGET_SLOW_UNALIGNED_ACCESS
+#define TARGET_SLOW_UNALIGNED_ACCESS riscv_slow_unaligned_access
+
+#undef TARGET_SECONDARY_MEMORY_NEEDED
+#define TARGET_SECONDARY_MEMORY_NEEDED riscv_secondary_memory_needed
+
+#undef TARGET_CAN_CHANGE_MODE_CLASS
+#define TARGET_CAN_CHANGE_MODE_CLASS riscv_can_change_mode_class
+
+#undef TARGET_CONSTANT_ALIGNMENT
+#define TARGET_CONSTANT_ALIGNMENT riscv_constant_alignment
 
 struct gcc_target targetm = TARGET_INITIALIZER;
 

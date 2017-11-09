@@ -1062,8 +1062,8 @@ gimple_find_sub_bbs (gimple_seq seq, gimple_stmt_iterator *gsi)
       edge_iterator ei;
       FOR_EACH_EDGE (e, ei, bb->preds)
 	{
-	  if (e->count.initialized_p ())
-	    cnt += e->count;
+	  if (e->count ().initialized_p ())
+	    cnt += e->count ();
 	  else
 	    all = false;
 	  freq += EDGE_FREQUENCY (e);
@@ -1071,9 +1071,6 @@ gimple_find_sub_bbs (gimple_seq seq, gimple_stmt_iterator *gsi)
       tree_guess_outgoing_edge_probabilities (bb);
       if (all || profile_status_for_fn (cfun) == PROFILE_READ)
         bb->count = cnt;
-      bb->frequency = freq;
-      FOR_EACH_EDGE (e, ei, bb->succs)
-	e->count = bb->count.apply_probability (e->probability);
 
       bb = bb->next_bb;
     }
@@ -1721,12 +1718,12 @@ group_case_labels_stmt (gswitch *stmt)
 	{
 	  tree merge_case = gimple_switch_label (stmt, next_index);
 	  basic_block merge_bb = label_to_block (CASE_LABEL (merge_case));
-	  wide_int bhp1 = wi::add (base_high, 1);
+	  wide_int bhp1 = wi::to_wide (base_high) + 1;
 
 	  /* Merge the cases if they jump to the same place,
 	     and their ranges are consecutive.  */
 	  if (merge_bb == base_bb
-	      && wi::eq_p (CASE_LOW (merge_case), bhp1))
+	      && wi::to_wide (CASE_LOW (merge_case)) == bhp1)
 	    {
 	      base_high = CASE_HIGH (merge_case) ?
 		  CASE_HIGH (merge_case) : CASE_LOW (merge_case);
@@ -2083,7 +2080,6 @@ gimple_merge_blocks (basic_block a, basic_block b)
   if (a->loop_father == b->loop_father)
     {
       a->count = a->count.merge (b->count);
-      a->frequency = MAX (a->frequency, b->frequency);
     }
 
   /* Merge the sequences.  */
@@ -2842,12 +2838,12 @@ gimple_split_edge (edge edge_in)
   after_bb = split_edge_bb_loc (edge_in);
 
   new_bb = create_empty_bb (after_bb);
-  new_bb->frequency = EDGE_FREQUENCY (edge_in);
-  new_bb->count = edge_in->count;
-  new_edge = make_single_succ_edge (new_bb, dest, EDGE_FALLTHRU);
+  new_bb->count = edge_in->count ();
 
   e = redirect_edge_and_branch (edge_in, new_bb);
   gcc_assert (e == edge_in);
+
+  new_edge = make_single_succ_edge (new_bb, dest, EDGE_FALLTHRU);
   reinstall_phi_args (new_edge, e);
 
   return new_bb;
@@ -4012,15 +4008,80 @@ verify_gimple_assign_binary (gassign *stmt)
 	      || (TYPE_PRECISION (rhs1_type) != TYPE_PRECISION (rhs2_type)));
 
     case WIDEN_SUM_EXPR:
+      {
+        if (((TREE_CODE (rhs1_type) != VECTOR_TYPE
+	      || TREE_CODE (lhs_type) != VECTOR_TYPE)
+	     && ((!INTEGRAL_TYPE_P (rhs1_type)
+		  && !SCALAR_FLOAT_TYPE_P (rhs1_type))
+		 || (!INTEGRAL_TYPE_P (lhs_type)
+		     && !SCALAR_FLOAT_TYPE_P (lhs_type))))
+	    || !useless_type_conversion_p (lhs_type, rhs2_type)
+	    || (GET_MODE_SIZE (element_mode (rhs2_type))
+		< 2 * GET_MODE_SIZE (element_mode (rhs1_type))))
+          {
+            error ("type mismatch in widening sum reduction");
+            debug_generic_expr (lhs_type);
+            debug_generic_expr (rhs1_type);
+            debug_generic_expr (rhs2_type);
+            return true;
+          }
+        return false;
+      }
+
     case VEC_WIDEN_MULT_HI_EXPR:
     case VEC_WIDEN_MULT_LO_EXPR:
     case VEC_WIDEN_MULT_EVEN_EXPR:
     case VEC_WIDEN_MULT_ODD_EXPR:
+      {
+        if (TREE_CODE (rhs1_type) != VECTOR_TYPE
+            || TREE_CODE (lhs_type) != VECTOR_TYPE
+	    || !types_compatible_p (rhs1_type, rhs2_type)
+            || (GET_MODE_SIZE (element_mode (lhs_type))
+		!= 2 * GET_MODE_SIZE (element_mode (rhs1_type))))
+          {
+            error ("type mismatch in vector widening multiplication");
+            debug_generic_expr (lhs_type);
+            debug_generic_expr (rhs1_type);
+            debug_generic_expr (rhs2_type);
+            return true;
+          }
+        return false;
+      }
+
     case VEC_PACK_TRUNC_EXPR:
+      /* ???  We currently use VEC_PACK_TRUNC_EXPR to simply concat
+	 vector boolean types.  */
+      if (VECTOR_BOOLEAN_TYPE_P (lhs_type)
+	  && VECTOR_BOOLEAN_TYPE_P (rhs1_type)
+	  && types_compatible_p (rhs1_type, rhs2_type)
+	  && (TYPE_VECTOR_SUBPARTS (lhs_type)
+	      == 2 * TYPE_VECTOR_SUBPARTS (rhs1_type)))
+	return false;
+
+      /* Fallthru.  */
     case VEC_PACK_SAT_EXPR:
     case VEC_PACK_FIX_TRUNC_EXPR:
-      /* FIXME.  */
-      return false;
+      {
+        if (TREE_CODE (rhs1_type) != VECTOR_TYPE
+            || TREE_CODE (lhs_type) != VECTOR_TYPE
+            || !((rhs_code == VEC_PACK_FIX_TRUNC_EXPR
+		  && SCALAR_FLOAT_TYPE_P (TREE_TYPE (rhs1_type))
+		  && INTEGRAL_TYPE_P (TREE_TYPE (lhs_type)))
+		 || (INTEGRAL_TYPE_P (TREE_TYPE (rhs1_type))
+		     == INTEGRAL_TYPE_P (TREE_TYPE (lhs_type))))
+	    || !types_compatible_p (rhs1_type, rhs2_type)
+            || (GET_MODE_SIZE (element_mode (rhs1_type))
+		!= 2 * GET_MODE_SIZE (element_mode (lhs_type))))
+          {
+            error ("type mismatch in vector pack expression");
+            debug_generic_expr (lhs_type);
+            debug_generic_expr (rhs1_type);
+            debug_generic_expr (rhs2_type);
+            return true;
+          }
+
+        return false;
+      }
 
     case MULT_EXPR:
     case MULT_HIGHPART_EXPR:
@@ -4190,8 +4251,8 @@ verify_gimple_assign_ternary (gassign *stmt)
 	}
 
       if (TREE_CODE (TREE_TYPE (rhs3_type)) != INTEGER_TYPE
-	  || GET_MODE_BITSIZE (TYPE_MODE (TREE_TYPE (rhs3_type)))
-	     != GET_MODE_BITSIZE (TYPE_MODE (TREE_TYPE (rhs1_type))))
+	  || GET_MODE_BITSIZE (SCALAR_INT_TYPE_MODE (TREE_TYPE (rhs3_type)))
+	     != GET_MODE_BITSIZE (SCALAR_TYPE_MODE (TREE_TYPE (rhs1_type))))
 	{
 	  error ("invalid mask type in vector permute expression");
 	  debug_generic_expr (lhs_type);
@@ -4280,6 +4341,27 @@ verify_gimple_assign_ternary (gassign *stmt)
       return false;
 
     case DOT_PROD_EXPR:
+      {
+        if (((TREE_CODE (rhs1_type) != VECTOR_TYPE
+	      || TREE_CODE (lhs_type) != VECTOR_TYPE)
+	     && ((!INTEGRAL_TYPE_P (rhs1_type)
+		  && !SCALAR_FLOAT_TYPE_P (rhs1_type))
+		 || (!INTEGRAL_TYPE_P (lhs_type)
+		     && !SCALAR_FLOAT_TYPE_P (lhs_type))))
+	    || !types_compatible_p (rhs1_type, rhs2_type)
+	    || !useless_type_conversion_p (lhs_type, rhs3_type)
+	    || (GET_MODE_SIZE (element_mode (rhs3_type))
+		< 2 * GET_MODE_SIZE (element_mode (rhs1_type))))
+          {
+            error ("type mismatch in dot product reduction");
+            debug_generic_expr (lhs_type);
+            debug_generic_expr (rhs1_type);
+            debug_generic_expr (rhs2_type);
+            return true;
+          }
+        return false;
+      }
+
     case REALIGN_LOAD_EXPR:
       /* FIXME.  */
       return false;
@@ -6221,9 +6303,8 @@ gimple_duplicate_sese_region (edge entry, edge exit,
   bool free_region_copy = false, copying_header = false;
   struct loop *loop = entry->dest->loop_father;
   edge exit_copy;
-  vec<basic_block> doms;
+  vec<basic_block> doms = vNULL;
   edge redirected;
-  int total_freq = 0, entry_freq = 0;
   profile_count total_count = profile_count::uninitialized ();
   profile_count entry_count = profile_count::uninitialized ();
 
@@ -6285,39 +6366,22 @@ gimple_duplicate_sese_region (edge entry, edge exit,
   if (entry->dest->count.initialized_p ())
     {
       total_count = entry->dest->count;
-      entry_count = entry->count;
+      entry_count = entry->count ();
       /* Fix up corner cases, to avoid division by zero or creation of negative
 	 frequencies.  */
       if (entry_count > total_count)
 	entry_count = total_count;
     }
-  if (!(total_count > 0) || !(entry_count > 0))
-    {
-      total_freq = entry->dest->frequency;
-      entry_freq = EDGE_FREQUENCY (entry);
-      /* Fix up corner cases, to avoid division by zero or creation of negative
-	 frequencies.  */
-      if (total_freq == 0)
-	total_freq = 1;
-      else if (entry_freq > total_freq)
-	entry_freq = total_freq;
-    }
 
   copy_bbs (region, n_region, region_copy, &exit, 1, &exit_copy, loop,
 	    split_edge_bb_loc (entry), update_dominance);
-  if (total_count > 0 && entry_count > 0)
+  if (total_count.initialized_p () && entry_count.initialized_p ())
     {
       scale_bbs_frequencies_profile_count (region, n_region,
 				           total_count - entry_count,
 				           total_count);
       scale_bbs_frequencies_profile_count (region_copy, n_region, entry_count,
 				           total_count);
-    }
-  else
-    {
-      scale_bbs_frequencies_int (region, n_region, total_freq - entry_freq,
-				 total_freq);
-      scale_bbs_frequencies_int (region_copy, n_region, entry_freq, total_freq);
     }
 
   if (copying_header)
@@ -6407,7 +6471,6 @@ gimple_duplicate_sese_tail (edge entry, edge exit,
   struct loop *orig_loop = entry->dest->loop_father;
   basic_block switch_bb, entry_bb, nentry_bb;
   vec<basic_block> doms;
-  int total_freq = 0, exit_freq = 0;
   profile_count total_count = profile_count::uninitialized (),
 		exit_count = profile_count::uninitialized ();
   edge exits[2], nexits[2], e;
@@ -6452,42 +6515,22 @@ gimple_duplicate_sese_tail (edge entry, edge exit,
      inside.  */
   doms = get_dominated_by_region (CDI_DOMINATORS, region, n_region);
 
-  if (exit->src->count > 0)
-    {
-      total_count = exit->src->count;
-      exit_count = exit->count;
-      /* Fix up corner cases, to avoid division by zero or creation of negative
-	 frequencies.  */
-      if (exit_count > total_count)
-	exit_count = total_count;
-    }
-  else
-    {
-      total_freq = exit->src->frequency;
-      exit_freq = EDGE_FREQUENCY (exit);
-      /* Fix up corner cases, to avoid division by zero or creation of negative
-	 frequencies.  */
-      if (total_freq == 0)
-	total_freq = 1;
-      if (exit_freq > total_freq)
-	exit_freq = total_freq;
-    }
+  total_count = exit->src->count;
+  exit_count = exit->count ();
+  /* Fix up corner cases, to avoid division by zero or creation of negative
+     frequencies.  */
+  if (exit_count > total_count)
+    exit_count = total_count;
 
   copy_bbs (region, n_region, region_copy, exits, 2, nexits, orig_loop,
 	    split_edge_bb_loc (exit), true);
-  if (total_count.initialized_p ())
+  if (total_count.initialized_p () && exit_count.initialized_p ())
     {
       scale_bbs_frequencies_profile_count (region, n_region,
 				           total_count - exit_count,
 				           total_count);
       scale_bbs_frequencies_profile_count (region_copy, n_region, exit_count,
 				           total_count);
-    }
-  else
-    {
-      scale_bbs_frequencies_int (region, n_region, total_freq - exit_freq,
-				 total_freq);
-      scale_bbs_frequencies_int (region_copy, n_region, exit_freq, total_freq);
     }
 
   /* Create the switch block, and put the exit condition to it.  */
@@ -6510,10 +6553,8 @@ gimple_duplicate_sese_tail (edge entry, edge exit,
   sorig = single_succ_edge (switch_bb);
   sorig->flags = exits[1]->flags;
   sorig->probability = exits[1]->probability;
-  sorig->count = exits[1]->count;
   snew = make_edge (switch_bb, nentry_bb, exits[0]->flags);
   snew->probability = exits[0]->probability;
-  snew->count = exits[1]->count;
   
 
   /* Register the new edge from SWITCH_BB in loop exit lists.  */
@@ -6718,7 +6759,15 @@ move_stmt_op (tree *tp, int *walk_subtrees, void *data)
 		*tp = t = out->to;
 	    }
 
-	  DECL_CONTEXT (t) = p->to_context;
+	  /* For FORCED_LABELs we can end up with references from other
+	     functions if some SESE regions are outlined.  It is UB to
+	     jump in between them, but they could be used just for printing
+	     addresses etc.  In that case, DECL_CONTEXT on the label should
+	     be the function containing the glabel stmt with that LABEL_DECL,
+	     rather than whatever function a reference to the label was seen
+	     last time.  */
+	  if (!FORCED_LABEL (t) && !DECL_NONLOCAL (t))
+	    DECL_CONTEXT (t) = p->to_context;
 	}
       else if (p->remap_decls_p)
 	{
@@ -6836,6 +6885,21 @@ move_stmt_r (gimple_stmt_iterator *gsi_p, bool *handled_ops_p,
     case GIMPLE_OMP_RETURN:
     case GIMPLE_OMP_CONTINUE:
       break;
+
+    case GIMPLE_LABEL:
+      {
+	/* For FORCED_LABEL, move_stmt_op doesn't adjust DECL_CONTEXT,
+	   so that such labels can be referenced from other regions.
+	   Make sure to update it when seeing a GIMPLE_LABEL though,
+	   that is the owner of the label.  */
+	walk_gimple_op (stmt, move_stmt_op, wi);
+	*handled_ops_p = true;
+	tree label = gimple_label_label (as_a <glabel *> (stmt));
+	if (FORCED_LABEL (label) || DECL_NONLOCAL (label))
+	  DECL_CONTEXT (label) = p->to_context;
+      }
+      break;
+
     default:
       if (is_gimple_omp (stmt))
 	{
@@ -7508,9 +7572,15 @@ move_sese_region_to_fn (struct function *dest_cfun, basic_block entry_bb,
      FIXME, this is silly.  The CFG ought to become a parameter to
      these helpers.  */
   push_cfun (dest_cfun);
-  make_edge (ENTRY_BLOCK_PTR_FOR_FN (cfun), entry_bb, EDGE_FALLTHRU);
+  ENTRY_BLOCK_PTR_FOR_FN (cfun)->count = entry_bb->count;
+  make_single_succ_edge (ENTRY_BLOCK_PTR_FOR_FN (cfun), entry_bb, EDGE_FALLTHRU);
   if (exit_bb)
-    make_edge (exit_bb,  EXIT_BLOCK_PTR_FOR_FN (cfun), 0);
+    {
+      make_single_succ_edge (exit_bb,  EXIT_BLOCK_PTR_FOR_FN (cfun), 0);
+      EXIT_BLOCK_PTR_FOR_FN (cfun)->count = exit_bb->count;
+    }
+  else
+    EXIT_BLOCK_PTR_FOR_FN (cfun)->count = profile_count::zero ();
   pop_cfun ();
 
   /* Back in the original function, the SESE region has disappeared,
@@ -8225,7 +8295,6 @@ gimple_flow_call_edges_add (sbitmap blocks)
 		    }
 		  e = make_edge (bb, EXIT_BLOCK_PTR_FOR_FN (cfun), EDGE_FAKE);
 		  e->probability = profile_probability::guessed_never ();
-		  e->count = profile_count::guessed_zero ();
 		}
 	      gsi_prev (&gsi);
 	    }
@@ -8586,7 +8655,7 @@ gimple_account_profile_record (basic_block bb, int after_pass,
       else if (profile_status_for_fn (cfun) == PROFILE_GUESSED)
 	record->time[after_pass]
 	  += estimate_num_insns (gsi_stmt (i),
-				 &eni_time_weights) * bb->frequency;
+				 &eni_time_weights) * bb->count.to_frequency (cfun);
     }
 }
 
@@ -8737,14 +8806,11 @@ insert_cond_bb (basic_block bb, gimple *stmt, gimple *cond,
   new_bb = create_empty_bb (bb);
   edge e = make_edge (bb, new_bb, EDGE_TRUE_VALUE);
   e->probability = prob;
-  e->count = bb->count.apply_probability (prob);
-  new_bb->count = e->count;
-  new_bb->frequency = prob.apply (bb->frequency);
+  new_bb->count = e->count ();
   make_single_succ_edge (new_bb, fall->dest, EDGE_FALLTHRU);
 
   /* Fix edge for split bb.  */
   fall->flags = EDGE_FALSE_VALUE;
-  fall->count -= e->count;
   fall->probability -= e->probability;
 
   /* Update dominance info.  */
@@ -8903,7 +8969,31 @@ extract_true_false_controlled_edges (basic_block dom, basic_block phiblock,
   return true;
 }
 
+/* Generate a range test LHS CODE RHS that determines whether INDEX is in the
+    range [low, high].  Place associated stmts before *GSI.  */
 
+void
+generate_range_test (basic_block bb, tree index, tree low, tree high,
+		     tree *lhs, tree *rhs)
+{
+  tree type = TREE_TYPE (index);
+  tree utype = unsigned_type_for (type);
+
+  low = fold_convert (type, low);
+  high = fold_convert (type, high);
+
+  tree tmp = make_ssa_name (type);
+  gassign *sub1
+    = gimple_build_assign (tmp, MINUS_EXPR, index, low);
+
+  *lhs = make_ssa_name (utype);
+  gassign *a = gimple_build_assign (*lhs, NOP_EXPR, tmp);
+
+  *rhs = fold_build2 (MINUS_EXPR, utype, high, low);
+  gimple_stmt_iterator gsi = gsi_last_bb (bb);
+  gsi_insert_before (&gsi, sub1, GSI_SAME_STMT);
+  gsi_insert_before (&gsi, a, GSI_SAME_STMT);
+}
 
 /* Emit return warnings.  */
 
@@ -8950,13 +9040,29 @@ pass_warn_function_return::execute (function *fun)
       && EDGE_COUNT (EXIT_BLOCK_PTR_FOR_FN (fun)->preds) > 0)
     {
       location = UNKNOWN_LOCATION;
-      FOR_EACH_EDGE (e, ei, EXIT_BLOCK_PTR_FOR_FN (fun)->preds)
+      for (ei = ei_start (EXIT_BLOCK_PTR_FOR_FN (fun)->preds);
+	   (e = ei_safe_edge (ei)); )
 	{
 	  last = last_stmt (e->src);
 	  if ((gimple_code (last) == GIMPLE_RETURN
 	       || gimple_call_builtin_p (last, BUILT_IN_RETURN))
-	      && (location = gimple_location (last)) != UNKNOWN_LOCATION)
+	      && location == UNKNOWN_LOCATION
+	      && (location = gimple_location (last)) != UNKNOWN_LOCATION
+	      && !optimize)
 	    break;
+	  /* When optimizing, replace return stmts in noreturn functions
+	     with __builtin_unreachable () call.  */
+	  if (optimize && gimple_code (last) == GIMPLE_RETURN)
+	    {
+	      tree fndecl = builtin_decl_implicit (BUILT_IN_UNREACHABLE);
+	      gimple *new_stmt = gimple_build_call (fndecl, 0);
+	      gimple_set_location (new_stmt, gimple_location (last));
+	      gimple_stmt_iterator gsi = gsi_for_stmt (last);
+	      gsi_replace (&gsi, new_stmt, true);
+	      remove_edge (e);
+	    }
+	  else
+	    ei_next (&ei);
 	}
       if (location == UNKNOWN_LOCATION)
 	location = cfun->function_end_locus;
@@ -9118,23 +9224,18 @@ execute_fixup_cfg (void)
   basic_block bb;
   gimple_stmt_iterator gsi;
   int todo = 0;
-  edge e;
-  edge_iterator ei;
   cgraph_node *node = cgraph_node::get (current_function_decl);
   profile_count num = node->count;
   profile_count den = ENTRY_BLOCK_PTR_FOR_FN (cfun)->count;
-  bool scale = num.initialized_p ()
-	       && (den > 0 || num == profile_count::zero ())
-	       && !(num == den);
+  bool scale = num.initialized_p () && den.ipa_p ()
+	       && (den.nonzero_p () || num == profile_count::zero ())
+	       && !(num == den.ipa ());
 
   if (scale)
     {
       ENTRY_BLOCK_PTR_FOR_FN (cfun)->count = node->count;
       EXIT_BLOCK_PTR_FOR_FN (cfun)->count
         = EXIT_BLOCK_PTR_FOR_FN (cfun)->count.apply_scale (num, den);
-
-      FOR_EACH_EDGE (e, ei, ENTRY_BLOCK_PTR_FOR_FN (cfun)->succs)
-	e->count = e->count.apply_scale (num, den);
     }
 
   FOR_EACH_BB_FN (bb, cfun)
@@ -9208,10 +9309,6 @@ execute_fixup_cfg (void)
 	    todo |= TODO_cleanup_cfg;
 	  gsi_next (&gsi);
 	}
-
-      if (scale)
-	FOR_EACH_EDGE (e, ei, bb->succs)
-	  e->count = e->count.apply_scale (num, den);
 
       /* If we have a basic block with no successors that does not
 	 end with a control statement or a noreturn call end it with

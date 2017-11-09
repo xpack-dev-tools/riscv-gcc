@@ -147,7 +147,7 @@ declare_library_fn (const char *name, tree rtype, tree ptype,
 		    int ecf, int tm_ecf)
 {
   tree ident = get_identifier (name);
-  tree res = IDENTIFIER_GLOBAL_VALUE (ident);
+  tree res = get_global_binding (ident);
   if (!res)
     {
       tree type = build_function_type_list (rtype, ptype, NULL_TREE);
@@ -158,7 +158,7 @@ declare_library_fn (const char *name, tree rtype, tree ptype,
 	  char *tm_name = concat ("_ITM_", name + 2, NULL_TREE);
 	  tree tm_ident = get_identifier (tm_name);
 	  free (tm_name);
-	  tree tm_fn = IDENTIFIER_GLOBAL_VALUE (tm_ident);
+	  tree tm_fn = get_global_binding (tm_ident);
 	  if (!tm_fn)
 	    tm_fn = push_library_fn (tm_ident, type, except, ecf | tm_ecf);
 	  record_tm_replacement (res, tm_fn);
@@ -261,13 +261,19 @@ build_must_not_throw_expr (tree body, tree cond)
   if (!flag_exceptions)
     return body;
 
-  if (cond && !value_dependent_expression_p (cond))
+  if (!cond)
+    /* OK, unconditional.  */;
+  else
     {
-      cond = perform_implicit_conversion_flags (boolean_type_node, cond,
-						tf_warning_or_error,
-						LOOKUP_NORMAL);
-      cond = instantiate_non_dependent_expr (cond);
-      cond = cxx_constant_value (cond);
+      tree conv = NULL_TREE;
+      if (!type_dependent_expression_p (cond))
+	conv = perform_implicit_conversion_flags (boolean_type_node, cond,
+						  tf_warning_or_error,
+						  LOOKUP_NORMAL);
+      if (tree inst = instantiate_non_dependent_or_null (conv))
+	cond = cxx_constant_value (inst);
+      else
+	require_constant_expression (cond);
       if (integer_zerop (cond))
 	return body;
       else if (integer_onep (cond))
@@ -603,7 +609,7 @@ build_throw (tree exp)
       if (!throw_fn)
 	{
 	  tree name = get_identifier ("__cxa_throw");
-	  throw_fn = IDENTIFIER_GLOBAL_VALUE (name);
+	  throw_fn = get_global_binding (name);
 	  if (!throw_fn)
 	    {
 	      /* Declare void __cxa_throw (void*, void*, void (*)(void*)).  */
@@ -616,7 +622,7 @@ build_throw (tree exp)
 	      if (flag_tm)
 		{
 		  tree itm_name = get_identifier ("_ITM_cxa_throw");
-		  tree itm_fn = IDENTIFIER_GLOBAL_VALUE (itm_name);
+		  tree itm_fn = get_global_binding (itm_name);
 		  if (!itm_fn)
 		    itm_fn = push_throw_library_fn (itm_name, tmp);
 		  apply_tm_attr (itm_fn, get_identifier ("transaction_pure"));
@@ -665,6 +671,7 @@ build_throw (tree exp)
 	{
 	  int flags = LOOKUP_NORMAL | LOOKUP_ONLYCONVERTING;
 	  vec<tree, va_gc> *exp_vec;
+	  bool converted = false;
 
 	  /* Under C++0x [12.8/16 class.copy], a thrown lvalue is sometimes
 	     treated as an rvalue for the purposes of overload resolution
@@ -675,14 +682,31 @@ build_throw (tree exp)
 	      && ! TREE_STATIC (exp)
 	      /* The variable must not have the `volatile' qualifier.  */
 	      && !(cp_type_quals (TREE_TYPE (exp)) & TYPE_QUAL_VOLATILE))
-	    flags = flags | LOOKUP_PREFER_RVALUE;
+	    {
+	      tree moved = move (exp);
+	      exp_vec = make_tree_vector_single (moved);
+	      moved = (build_special_member_call
+		       (object, complete_ctor_identifier, &exp_vec,
+			TREE_TYPE (object), flags|LOOKUP_PREFER_RVALUE,
+			tf_none));
+	      release_tree_vector (exp_vec);
+	      if (moved != error_mark_node)
+		{
+		  exp = moved;
+		  converted = true;
+		}
+	    }
 
 	  /* Call the copy constructor.  */
-	  exp_vec = make_tree_vector_single (exp);
-	  exp = (build_special_member_call
-		 (object, complete_ctor_identifier, &exp_vec,
-		  TREE_TYPE (object), flags, tf_warning_or_error));
-	  release_tree_vector (exp_vec);
+	  if (!converted)
+	    {
+	      exp_vec = make_tree_vector_single (exp);
+	      exp = (build_special_member_call
+		     (object, complete_ctor_identifier, &exp_vec,
+		      TREE_TYPE (object), flags, tf_warning_or_error));
+	      release_tree_vector (exp_vec);
+	    }
+
 	  if (exp == error_mark_node)
 	    {
 	      error ("  in thrown expression");
@@ -740,7 +764,7 @@ build_throw (tree exp)
       if (!rethrow_fn)
 	{
 	  tree name = get_identifier ("__cxa_rethrow");
-	  rethrow_fn = IDENTIFIER_GLOBAL_VALUE (name);
+	  rethrow_fn = get_global_binding (name);
 	  if (!rethrow_fn)
 	    /* Declare void __cxa_rethrow (void).  */
 	    rethrow_fn = push_throw_library_fn

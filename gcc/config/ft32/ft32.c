@@ -25,6 +25,8 @@
 #include "target.h"
 #include "rtl.h"
 #include "tree.h"
+#include "stringpool.h"
+#include "attribs.h"
 #include "df.h"
 #include "memmodel.h"
 #include "tm_p.h"
@@ -790,7 +792,7 @@ ft32_is_mem_pm (rtx o)
 #undef TARGET_VALID_POINTER_MODE
 #define TARGET_VALID_POINTER_MODE ft32_valid_pointer_mode
 static bool
-ft32_valid_pointer_mode (machine_mode mode)
+ft32_valid_pointer_mode (scalar_int_mode mode)
 {
   if (mode == SImode)
     return 1;
@@ -799,7 +801,7 @@ ft32_valid_pointer_mode (machine_mode mode)
 
 #undef TARGET_ADDR_SPACE_POINTER_MODE
 #define TARGET_ADDR_SPACE_POINTER_MODE ft32_addr_space_pointer_mode
-static machine_mode
+static scalar_int_mode
 ft32_addr_space_pointer_mode (addr_space_t addrspace ATTRIBUTE_UNUSED)
 {
   return Pmode;
@@ -807,7 +809,7 @@ ft32_addr_space_pointer_mode (addr_space_t addrspace ATTRIBUTE_UNUSED)
 
 #undef TARGET_ADDR_SPACE_ADDRESS_MODE
 #define TARGET_ADDR_SPACE_ADDRESS_MODE ft32_addr_space_address_mode
-static machine_mode
+static scalar_int_mode
 ft32_addr_space_address_mode (addr_space_t addrspace ATTRIBUTE_UNUSED)
 {
   return Pmode;
@@ -864,6 +866,8 @@ static bool
 ft32_addr_space_legitimate_address_p (machine_mode mode, rtx x, bool strict,
                                       addr_space_t as ATTRIBUTE_UNUSED)
 {
+  int max_offset = TARGET_FT32B ? 16384 : 128;
+
   if (mode != BLKmode)
     {
       if (GET_CODE (x) == PLUS)
@@ -873,8 +877,9 @@ ft32_addr_space_legitimate_address_p (machine_mode mode, rtx x, bool strict,
           op2 = XEXP (x, 1);
           if (GET_CODE (op1) == REG
               && CONST_INT_P (op2)
-              && INTVAL (op2) >= -128
-              && INTVAL (op2) < 128 && reg_ok_for_base_p (op1, strict))
+              && (-max_offset <= INTVAL (op2))
+              && (INTVAL (op2) < max_offset)
+              && reg_ok_for_base_p (op1, strict))
             goto yes;
           if (GET_CODE (op1) == SYMBOL_REF && CONST_INT_P (op2))
             goto yes;
@@ -937,6 +942,9 @@ ft32_elf_encode_section_info (tree decl, rtx rtl, int first)
       break;
     }
 }
+
+#undef TARGET_CONSTANT_ALIGNMENT
+#define TARGET_CONSTANT_ALIGNMENT constant_alignment_word_strings
 
 struct gcc_target targetm = TARGET_INITIALIZER;
 

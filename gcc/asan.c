@@ -47,6 +47,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "varasm.h"
 #include "stor-layout.h"
 #include "tree-iterator.h"
+#include "stringpool.h"
+#include "attribs.h"
 #include "asan.h"
 #include "dojump.h"
 #include "explow.h"
@@ -626,10 +628,9 @@ handle_builtin_alloca (gcall *call, gimple_stmt_iterator *iter)
   tree ptr_type = gimple_call_lhs (call) ? TREE_TYPE (gimple_call_lhs (call))
 					 : ptr_type_node;
   tree partial_size = NULL_TREE;
-  bool alloca_with_align
-    = DECL_FUNCTION_CODE (callee) == BUILT_IN_ALLOCA_WITH_ALIGN;
   unsigned int align
-    = alloca_with_align ? tree_to_uhwi (gimple_call_arg (call, 1)) : 0;
+    = DECL_FUNCTION_CODE (callee) == BUILT_IN_ALLOCA
+      ? 0 : tree_to_uhwi (gimple_call_arg (call, 1));
 
   /* If ALIGN > ASAN_RED_ZONE_SIZE, we embed left redzone into first ALIGN
      bytes of allocated space.  Otherwise, align alloca to ASAN_RED_ZONE_SIZE
@@ -791,8 +792,7 @@ get_mem_refs_of_builtin_call (gcall *call,
       handle_builtin_stack_restore (call, iter);
       break;
 
-    case BUILT_IN_ALLOCA_WITH_ALIGN:
-    case BUILT_IN_ALLOCA:
+    CASE_BUILT_IN_ALLOCA:
       handle_builtin_alloca (call, iter);
       break;
     /* And now the __atomic* and __sync builtins.
@@ -1345,7 +1345,7 @@ asan_emit_stack_protection (rtx base, rtx pbase, unsigned int alignb,
       snprintf (buf, sizeof buf, "__asan_stack_malloc_%d",
 		use_after_return_class);
       ret = init_one_libfunc (buf);
-      ret = emit_library_call_value (ret, NULL_RTX, LCT_NORMAL, ptr_mode, 1,
+      ret = emit_library_call_value (ret, NULL_RTX, LCT_NORMAL, ptr_mode,
 				     GEN_INT (asan_frame_size
 					      + base_align_bias),
 				     TYPE_MODE (pointer_sized_int_node));
@@ -1475,7 +1475,7 @@ asan_emit_stack_protection (rtx base, rtx pbase, unsigned int alignb,
 	  ret = init_one_libfunc (buf);
 	  rtx addr = convert_memory_address (ptr_mode, base);
 	  rtx orig_addr = convert_memory_address (ptr_mode, orig_base);
-	  emit_library_call (ret, LCT_NORMAL, ptr_mode, 3, addr, ptr_mode,
+	  emit_library_call (ret, LCT_NORMAL, ptr_mode, addr, ptr_mode,
 			     GEN_INT (asan_frame_size + base_align_bias),
 			     TYPE_MODE (pointer_sized_int_node),
 			     orig_addr, ptr_mode);
@@ -1571,8 +1571,8 @@ asan_emit_allocas_unpoison (rtx top, rtx bot, rtx_insn *before)
   rtx ret = init_one_libfunc ("__asan_allocas_unpoison");
   top = convert_memory_address (ptr_mode, top);
   bot = convert_memory_address (ptr_mode, bot);
-  ret = emit_library_call_value (ret, NULL_RTX, LCT_NORMAL, ptr_mode, 2, top,
-				 ptr_mode, bot, ptr_mode);
+  ret = emit_library_call_value (ret, NULL_RTX, LCT_NORMAL, ptr_mode,
+				 top, ptr_mode, bot, ptr_mode);
 
   do_pending_stack_adjust ();
   rtx_insn *insns = get_insns ();
@@ -1663,10 +1663,8 @@ asan_protect_global (tree decl)
   if (lookup_attribute ("weakref", DECL_ATTRIBUTES (decl)))
     return false;
 
-#ifndef ASM_OUTPUT_DEF
-  if (asan_needs_local_alias (decl))
+  if (!TARGET_SUPPORTS_ALIASES && asan_needs_local_alias (decl))
     return false;
-#endif
 
   return true;
 }
@@ -1803,13 +1801,13 @@ create_cond_insert_point (gimple_stmt_iterator *iter,
     ? profile_probability::very_unlikely ()
     : profile_probability::very_likely ();
   e->probability = fallthrough_probability.invert ();
+  then_bb->count = e->count ();
   if (create_then_fallthru_edge)
     make_single_succ_edge (then_bb, fallthru_bb, EDGE_FALLTHRU);
 
   /* Set up the fallthrough basic block.  */
   e = find_edge (cond_bb, fallthru_bb);
   e->flags = EDGE_FALSE_VALUE;
-  e->count = cond_bb->count;
   e->probability = fallthrough_probability;
 
   /* Update dominance info for the newly created then_bb; note that
@@ -2527,9 +2525,12 @@ create_odr_indicator (tree decl, tree type)
   /* DECL_NAME theoretically might be NULL.  Bail out with 0 in this case.  */
   if (decl_name == NULL_TREE)
     return build_int_cst (uptr, 0);
-  size_t len = strlen (IDENTIFIER_POINTER (decl_name)) + sizeof ("__odr_asan_");
+  const char *dname = IDENTIFIER_POINTER (decl_name);
+  if (HAS_DECL_ASSEMBLER_NAME_P (decl))
+    dname = targetm.strip_name_encoding (dname);
+  size_t len = strlen (dname) + sizeof ("__odr_asan_");
   name = XALLOCAVEC (char, len);
-  snprintf (name, len, "__odr_asan_%s", IDENTIFIER_POINTER (decl_name));
+  snprintf (name, len, "__odr_asan_%s", dname);
 #ifndef NO_DOT_IN_LABEL
   name[sizeof ("__odr_asan") - 1] = '.';
 #elif !defined(NO_DOLLAR_IN_LABEL)
@@ -2706,6 +2707,29 @@ initialize_sanitizer_builtins (void)
   tree BT_FN_SIZE_CONST_PTR_INT
     = build_function_type_list (size_type_node, const_ptr_type_node,
 				integer_type_node, NULL_TREE);
+
+  tree BT_FN_VOID_UINT8_UINT8
+    = build_function_type_list (void_type_node, unsigned_char_type_node,
+				unsigned_char_type_node, NULL_TREE);
+  tree BT_FN_VOID_UINT16_UINT16
+    = build_function_type_list (void_type_node, uint16_type_node,
+				uint16_type_node, NULL_TREE);
+  tree BT_FN_VOID_UINT32_UINT32
+    = build_function_type_list (void_type_node, uint32_type_node,
+				uint32_type_node, NULL_TREE);
+  tree BT_FN_VOID_UINT64_UINT64
+    = build_function_type_list (void_type_node, uint64_type_node,
+				uint64_type_node, NULL_TREE);
+  tree BT_FN_VOID_FLOAT_FLOAT
+    = build_function_type_list (void_type_node, float_type_node,
+				float_type_node, NULL_TREE);
+  tree BT_FN_VOID_DOUBLE_DOUBLE
+    = build_function_type_list (void_type_node, double_type_node,
+				double_type_node, NULL_TREE);
+  tree BT_FN_VOID_UINT64_PTR
+    = build_function_type_list (void_type_node, uint64_type_node,
+				ptr_type_node, NULL_TREE);
+
   tree BT_FN_BOOL_VPTR_PTR_IX_INT_INT[5];
   tree BT_FN_IX_CONST_VPTR_INT[5];
   tree BT_FN_IX_VPTR_IX_INT[5];
@@ -2781,14 +2805,17 @@ initialize_sanitizer_builtins (void)
 #define ATTR_PURE_NOTHROW_LEAF_LIST ECF_PURE | ATTR_NOTHROW_LEAF_LIST
 #undef DEF_BUILTIN_STUB
 #define DEF_BUILTIN_STUB(ENUM, NAME)
-#undef DEF_SANITIZER_BUILTIN
-#define DEF_SANITIZER_BUILTIN(ENUM, NAME, TYPE, ATTRS) \
+#undef DEF_SANITIZER_BUILTIN_1
+#define DEF_SANITIZER_BUILTIN_1(ENUM, NAME, TYPE, ATTRS)		\
   do {									\
     decl = add_builtin_function ("__builtin_" NAME, TYPE, ENUM,		\
 				 BUILT_IN_NORMAL, NAME, NULL_TREE);	\
     set_call_expr_flags (decl, ATTRS);					\
     set_builtin_decl (ENUM, decl, true);				\
-  } while (0);
+  } while (0)
+#undef DEF_SANITIZER_BUILTIN
+#define DEF_SANITIZER_BUILTIN(ENUM, NAME, TYPE, ATTRS)	\
+  DEF_SANITIZER_BUILTIN_1 (ENUM, NAME, TYPE, ATTRS);
 
 #include "sanitizer.def"
 
@@ -2797,10 +2824,11 @@ initialize_sanitizer_builtins (void)
      DEF_SANITIZER_BUILTIN here only as a convenience macro.  */
   if ((flag_sanitize & SANITIZE_OBJECT_SIZE)
       && !builtin_decl_implicit_p (BUILT_IN_OBJECT_SIZE))
-    DEF_SANITIZER_BUILTIN (BUILT_IN_OBJECT_SIZE, "object_size",
-			   BT_FN_SIZE_CONST_PTR_INT,
-			   ATTR_PURE_NOTHROW_LEAF_LIST)
+    DEF_SANITIZER_BUILTIN_1 (BUILT_IN_OBJECT_SIZE, "object_size",
+			     BT_FN_SIZE_CONST_PTR_INT,
+			     ATTR_PURE_NOTHROW_LEAF_LIST);
 
+#undef DEF_SANITIZER_BUILTIN_1
 #undef DEF_SANITIZER_BUILTIN
 #undef DEF_BUILTIN_STUB
 }
@@ -2919,6 +2947,9 @@ asan_finish_file (void)
       TREE_CONSTANT (ctor) = 1;
       TREE_STATIC (ctor) = 1;
       DECL_INITIAL (var) = ctor;
+      SET_DECL_ALIGN (var, MAX (DECL_ALIGN (var),
+				ASAN_SHADOW_GRANULARITY * BITS_PER_UNIT));
+
       varpool_node::finalize_decl (var);
 
       tree fn = builtin_decl_implicit (BUILT_IN_ASAN_REGISTER_GLOBALS);
@@ -3373,6 +3404,10 @@ asan_expand_poison_ifn (gimple_stmt_iterator *iter,
 	    if (gimple_phi_arg_def (phi, i) == poisoned_var)
 	      {
 		edge e = gimple_phi_arg_edge (phi, i);
+
+		/* Do not insert on an edge we can't split.  */
+		if (e->flags & EDGE_ABNORMAL)
+		  continue;
 
 		if (call_to_insert == NULL)
 		  call_to_insert = gimple_copy (call);

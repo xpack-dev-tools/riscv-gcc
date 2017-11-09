@@ -61,6 +61,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-cfgcleanup.h"
 #include "insn-addr.h" /* for INSN_ADDRESSES_ALLOC.  */
 #include "diagnostic-core.h" /* for fnotice */
+#include "stringpool.h"
+#include "attribs.h"
 
 using namespace gcc;
 
@@ -195,7 +197,9 @@ rest_of_decl_compilation (tree decl,
 
   /* Can't defer this, because it needs to happen before any
      later function definitions are processed.  */
-  if (DECL_ASSEMBLER_NAME_SET_P (decl) && DECL_REGISTER (decl))
+  if (HAS_DECL_ASSEMBLER_NAME_P (decl)
+      && DECL_ASSEMBLER_NAME_SET_P (decl)
+      && DECL_REGISTER (decl))
     make_decl_rtl (decl);
 
   /* Forward declarations for nested functions are not "external",

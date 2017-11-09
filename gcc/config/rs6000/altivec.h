@@ -415,6 +415,7 @@
 #define vec_vsubuqm __builtin_vec_vsubuqm
 #define vec_vupkhsw __builtin_vec_vupkhsw
 #define vec_vupklsw __builtin_vec_vupklsw
+#define vec_revb __builtin_vec_revb
 #endif
 
 #ifdef __POWER9_VECTOR__
@@ -467,6 +468,8 @@
 #ifdef _ARCH_PPC64
 #define vec_xl_len __builtin_vec_lxvl
 #define vec_xst_len __builtin_vec_stxvl
+#define vec_xl_len_r __builtin_vec_xl_len_r
+#define vec_xst_len_r __builtin_vec_xst_len_r
 #endif
 
 #define vec_cmpnez __builtin_vec_vcmpnez
@@ -476,8 +479,6 @@
 
 #define vec_xlx __builtin_vec_vextulx
 #define vec_xrx __builtin_vec_vexturx
-
-#define vec_revb __builtin_vec_revb
 #endif
 
 /* Predicates.

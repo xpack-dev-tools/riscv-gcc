@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2017, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -67,6 +67,10 @@ package Errout is
    --  (Off,..) and Warning_As_Pragma(...) but do not result in adding the
    --  error message tag. The -gnatw.d switch sets this flag True, -gnatw.D
    --  sets this flag False.
+
+   Current_Node : Node_Id := Empty;
+   --  Used by Error_Msg as a default Node_Id.
+   --  Relevant only when Opt.Include_Subprogram_In_Messages is set.
 
    -----------------------------------
    -- Suppression of Error Messages --
@@ -686,9 +690,13 @@ package Errout is
    --  Output list of messages, including messages giving number of detected
    --  errors and warnings.
 
-   procedure Error_Msg (Msg : String; Flag_Location : Source_Ptr);
+   procedure Error_Msg
+     (Msg : String; Flag_Location : Source_Ptr);
+   procedure Error_Msg
+     (Msg : String; Flag_Location : Source_Ptr; N : Node_Id);
    --  Output a message at specified location. Can be called from the parser
-   --  or the semantic analyzer.
+   --  or the semantic analyzer. If N is set, points to the relevant node for
+   --  this message.
 
    procedure Error_Msg_S (Msg : String);
    --  Output a message at current scan pointer location. This routine can be

@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-O0" } */
+/* { dg-options "-O0 -fno-pic" } */
 
 /* Verify that __attribute__((naked)) produces a naked function 
    that does not use ret to return but traps at the end.  */
@@ -10,5 +10,5 @@ foo (void)
   __asm__ ("# naked");
 }
 /* { dg-final { scan-assembler "# naked" } } */
-/* { dg-final { scan-assembler "ud2" } } */
-/* { dg-final { scan-assembler-not "ret" } } */
+/* { dg-final { scan-assembler "(?n)^\\s*ud2$" } } */
+/* { dg-final { scan-assembler-not "(?n)^\\s*ret$" } } */

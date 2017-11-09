@@ -37,7 +37,7 @@ static void set_Wstrict_aliasing (struct gcc_options *opts, int onoff);
 /* Indexed by enum debug_info_type.  */
 const char *const debug_type_names[] =
 {
-  "none", "stabs", "coff", "dwarf-2", "xcoff", "vms"
+  "none", "stabs", "dwarf-2", "xcoff", "vms"
 };
 
 /* Parse the -femit-struct-debug-detailed option value
@@ -217,7 +217,7 @@ target_handle_option (struct gcc_options *opts,
 		      unsigned int lang_mask ATTRIBUTE_UNUSED, int kind,
 		      location_t loc,
 		      const struct cl_option_handlers *handlers ATTRIBUTE_UNUSED,
-		      diagnostic_context *dc)
+		      diagnostic_context *dc, void (*) (void))
 {
   gcc_assert (dc == global_dc);
   gcc_assert (kind == DK_UNSPECIFIED);
@@ -525,6 +525,7 @@ static const struct default_options default_options_table[] =
 
     /* -O3 optimizations.  */
     { OPT_LEVELS_3_PLUS, OPT_ftree_loop_distribute_patterns, NULL, 1 },
+    { OPT_LEVELS_3_PLUS, OPT_ftree_loop_distribution, NULL, 1 },
     { OPT_LEVELS_3_PLUS, OPT_fpredictive_commoning, NULL, 1 },
     { OPT_LEVELS_3_PLUS, OPT_fsplit_paths, NULL, 1 },
     /* Inlining of functions reducing size is a good idea with -Os
@@ -1477,11 +1478,9 @@ enable_fdo_optimizations (struct gcc_options *opts,
     opts->x_flag_unswitch_loops = value;
   if (!opts_set->x_flag_gcse_after_reload)
     opts->x_flag_gcse_after_reload = value;
-  if (!opts_set->x_flag_tree_loop_vectorize
-      && !opts_set->x_flag_tree_vectorize)
+  if (!opts_set->x_flag_tree_loop_vectorize)
     opts->x_flag_tree_loop_vectorize = value;
-  if (!opts_set->x_flag_tree_slp_vectorize
-      && !opts_set->x_flag_tree_vectorize)
+  if (!opts_set->x_flag_tree_slp_vectorize)
     opts->x_flag_tree_slp_vectorize = value;
   if (!opts_set->x_flag_vect_cost_model)
     opts->x_flag_vect_cost_model = VECT_COST_MODEL_DYNAMIC;
@@ -1522,8 +1521,20 @@ const struct sanitizer_opts_s sanitizer_opts[] =
   SANITIZER_OPT (object-size, SANITIZE_OBJECT_SIZE, true),
   SANITIZER_OPT (vptr, SANITIZE_VPTR, true),
   SANITIZER_OPT (pointer-overflow, SANITIZE_POINTER_OVERFLOW, true),
+  SANITIZER_OPT (builtin, SANITIZE_BUILTIN, true),
   SANITIZER_OPT (all, ~0U, true),
 #undef SANITIZER_OPT
+  { NULL, 0U, 0UL, false }
+};
+
+/* -f{,no-}sanitize-coverage= suboptions.  */
+const struct sanitizer_opts_s coverage_sanitizer_opts[] =
+{
+#define COVERAGE_SANITIZER_OPT(name, flags) \
+    { #name, flags, sizeof #name - 1, true }
+  COVERAGE_SANITIZER_OPT (trace-pc, SANITIZE_COV_TRACE_PC),
+  COVERAGE_SANITIZER_OPT (trace-cmp, SANITIZE_COV_TRACE_CMP),
+#undef COVERAGE_SANITIZER_OPT
   { NULL, 0U, 0UL, false }
 };
 
@@ -1557,31 +1568,34 @@ struct edit_distance_traits<const string_fragment &>
 
 /* Given ARG, an unrecognized sanitizer option, return the best
    matching sanitizer option, or NULL if there isn't one.
-   CODE is OPT_fsanitize_ or OPT_fsanitize_recover_.
+   OPTS is array of candidate sanitizer options.
+   CODE is OPT_fsanitize_, OPT_fsanitize_recover_ or
+   OPT_fsanitize_coverage_.
    VALUE is non-zero for the regular form of the option, zero
    for the "no-" form (e.g. "-fno-sanitize-recover=").  */
 
 static const char *
 get_closest_sanitizer_option (const string_fragment &arg,
+			      const struct sanitizer_opts_s *opts,
 			      enum opt_code code, int value)
 {
   best_match <const string_fragment &, const char*> bm (arg);
-  for (int i = 0; sanitizer_opts[i].name != NULL; ++i)
+  for (int i = 0; opts[i].name != NULL; ++i)
     {
       /* -fsanitize=all is not valid, so don't offer it.  */
-      if (sanitizer_opts[i].flag == ~0U
-	  && code == OPT_fsanitize_
+      if (code == OPT_fsanitize_
+	  && opts[i].flag == ~0U
 	  && value)
 	continue;
 
       /* For -fsanitize-recover= (and not -fno-sanitize-recover=),
 	 don't offer the non-recoverable options.  */
-      if (!sanitizer_opts[i].can_recover
-	  && code == OPT_fsanitize_recover_
+      if (code == OPT_fsanitize_recover_
+	  && !opts[i].can_recover
 	  && value)
 	continue;
 
-      bm.consider (sanitizer_opts[i].name);
+      bm.consider (opts[i].name);
     }
   return bm.get_best_meaningful_candidate ();
 }
@@ -1595,6 +1609,13 @@ parse_sanitizer_options (const char *p, location_t loc, int scode,
 			 unsigned int flags, int value, bool complain)
 {
   enum opt_code code = (enum opt_code) scode;
+
+  const struct sanitizer_opts_s *opts;
+  if (code == OPT_fsanitize_coverage_)
+    opts = coverage_sanitizer_opts;
+  else
+    opts = sanitizer_opts;
+
   while (*p != 0)
     {
       size_t len, i;
@@ -1612,12 +1633,11 @@ parse_sanitizer_options (const char *p, location_t loc, int scode,
 	}
 
       /* Check to see if the string matches an option class name.  */
-      for (i = 0; sanitizer_opts[i].name != NULL; ++i)
-	if (len == sanitizer_opts[i].len
-	    && memcmp (p, sanitizer_opts[i].name, len) == 0)
+      for (i = 0; opts[i].name != NULL; ++i)
+	if (len == opts[i].len && memcmp (p, opts[i].name, len) == 0)
 	  {
 	    /* Handle both -fsanitize and -fno-sanitize cases.  */
-	    if (value && sanitizer_opts[i].flag == ~0U)
+	    if (value && opts[i].flag == ~0U)
 	      {
 		if (code == OPT_fsanitize_)
 		  {
@@ -1634,14 +1654,14 @@ parse_sanitizer_options (const char *p, location_t loc, int scode,
 		   -fsanitize-recover=return if -fsanitize-recover=undefined
 		   is selected.  */
 		if (code == OPT_fsanitize_recover_
-		    && sanitizer_opts[i].flag == SANITIZE_UNDEFINED)
+		    && opts[i].flag == SANITIZE_UNDEFINED)
 		  flags |= (SANITIZE_UNDEFINED
 			    & ~(SANITIZE_UNREACHABLE | SANITIZE_RETURN));
 		else
-		  flags |= sanitizer_opts[i].flag;
+		  flags |= opts[i].flag;
 	      }
 	    else
-	      flags &= ~sanitizer_opts[i].flag;
+	      flags &= ~opts[i].flag;
 	    found = true;
 	    break;
 	  }
@@ -1650,21 +1670,27 @@ parse_sanitizer_options (const char *p, location_t loc, int scode,
 	{
 	  const char *hint
 	    = get_closest_sanitizer_option (string_fragment (p, len),
-					    code, value);
+					    opts, code, value);
+
+	  const char *suffix;
+	  if (code == OPT_fsanitize_recover_)
+	    suffix = "-recover";
+	  else if (code == OPT_fsanitize_coverage_)
+	    suffix = "-coverage";
+	  else
+	    suffix = "";
 
 	  if (hint)
 	    error_at (loc,
 		      "unrecognized argument to -f%ssanitize%s= option: %q.*s;"
 		      " did you mean %qs?",
 		      value ? "" : "no-",
-		      code == OPT_fsanitize_ ? "" : "-recover",
-		      (int) len, p, hint);
+		      suffix, (int) len, p, hint);
 	  else
 	    error_at (loc,
 		      "unrecognized argument to -f%ssanitize%s= option: %q.*s",
 		      value ? "" : "no-",
-		      code == OPT_fsanitize_ ? "" : "-recover",
-		      (int) len, p);
+		      suffix, (int) len, p);
 	}
 
       if (comma == NULL)
@@ -1675,11 +1701,10 @@ parse_sanitizer_options (const char *p, location_t loc, int scode,
 }
 
 /* Parse string values of no_sanitize attribute passed in VALUE.
-   Values are separated with comma.  Wrong argument is stored to
-   WRONG_ARGUMENT variable.  */
+   Values are separated with comma.  */
 
 unsigned int
-parse_no_sanitize_attribute (char *value, char **wrong_argument)
+parse_no_sanitize_attribute (char *value)
 {
   unsigned int flags = 0;
   unsigned int i;
@@ -1697,7 +1722,8 @@ parse_no_sanitize_attribute (char *value, char **wrong_argument)
 	  }
 
       if (sanitizer_opts[i].name == NULL)
-	*wrong_argument = q;
+	warning (OPT_Wattributes,
+		 "%<%s%> attribute directive ignored", q);
 
       q = strtok (NULL, ",");
     }
@@ -1717,7 +1743,8 @@ common_handle_option (struct gcc_options *opts,
 		      unsigned int lang_mask, int kind ATTRIBUTE_UNUSED,
 		      location_t loc,
 		      const struct cl_option_handlers *handlers,
-		      diagnostic_context *dc)
+		      diagnostic_context *dc,
+		      void (*target_option_override_hook) (void))
 {
   size_t scode = decoded->opt_index;
   const char *arg = decoded->arg;
@@ -1744,6 +1771,7 @@ common_handle_option (struct gcc_options *opts,
 	undoc_mask = ((opts->x_verbose_flag | opts->x_extra_warnings)
 		      ? 0
 		      : CL_UNDOCUMENTED);
+	target_option_override_hook ();
 	/* First display any single language specific options.  */
 	for (i = 0; i < cl_lang_count; i++)
 	  print_specific_help
@@ -1763,6 +1791,7 @@ common_handle_option (struct gcc_options *opts,
       if (lang_mask == CL_DRIVER)
 	break;
 
+      target_option_override_hook ();
       print_specific_help (CL_TARGET, CL_UNDOCUMENTED, 0, opts, lang_mask);
       opts->x_exit_after_options = true;
       break;
@@ -1889,8 +1918,11 @@ common_handle_option (struct gcc_options *opts,
 	  }
 
 	if (include_flags)
-	  print_specific_help (include_flags, exclude_flags, 0, opts,
-			       lang_mask);
+	  {
+	    target_option_override_hook ();
+	    print_specific_help (include_flags, exclude_flags, 0, opts,
+				 lang_mask);
+	  }
 	opts->x_exit_after_options = true;
 	break;
       }
@@ -1949,6 +1981,12 @@ common_handle_option (struct gcc_options *opts,
       else
 	opts->x_flag_sanitize_recover
 	  &= ~(SANITIZE_UNDEFINED | SANITIZE_UNDEFINED_NONDEFAULT);
+      break;
+
+    case OPT_fsanitize_coverage_:
+      opts->x_flag_sanitize_coverage
+	= parse_sanitizer_options (arg, loc, code,
+				   opts->x_flag_sanitize_coverage, value, true);
       break;
 
     case OPT_O:
@@ -2236,10 +2274,8 @@ common_handle_option (struct gcc_options *opts,
       break;
 
     case OPT_ftree_vectorize:
-      if (!opts_set->x_flag_tree_loop_vectorize)
-        opts->x_flag_tree_loop_vectorize = value;
-      if (!opts_set->x_flag_tree_slp_vectorize)
-        opts->x_flag_tree_slp_vectorize = value;
+      /* Automatically sets -ftree-loop-vectorize and
+	 -ftree-slp-vectorize.  Nothing more to do here.  */
       break;
     case OPT_fshow_column:
       dc->show_column = value;
@@ -2313,10 +2349,6 @@ common_handle_option (struct gcc_options *opts,
     case OPT_g:
       set_debug_level (NO_DEBUG, DEFAULT_GDB_EXTENSIONS, arg, opts, opts_set,
                        loc);
-      break;
-
-    case OPT_gcoff:
-      set_debug_level (SDB_DEBUG, false, arg, opts, opts_set, loc);
       break;
 
     case OPT_gdwarf:

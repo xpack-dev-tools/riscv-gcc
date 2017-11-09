@@ -35,6 +35,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "lto-tree.h"
 #include "lto.h"
 #include "cilk.h"
+#include "stringpool.h"
+#include "attribs.h"
 
 static tree handle_noreturn_attribute (tree *, tree, tree, int, bool *);
 static tree handle_leaf_attribute (tree *, tree, tree, int, bool *);
@@ -852,11 +854,13 @@ lto_post_options (const char **pfilename ATTRIBUTE_UNUSED)
          flag_pie is 2.  */
       flag_pie = MAX (flag_pie, flag_pic);
       flag_pic = flag_pie;
+      flag_shlib = 0;
       break;
 
     case LTO_LINKER_OUTPUT_EXEC: /* Normal executable */
       flag_pic = 0;
       flag_pie = 0;
+      flag_shlib = 0;
       break;
 
     case LTO_LINKER_OUTPUT_UNKNOWN:
@@ -939,15 +943,15 @@ lto_type_for_mode (machine_mode mode, int unsigned_p)
   if (mode == TYPE_MODE (void_type_node))
     return void_type_node;
 
-  if (mode == TYPE_MODE (build_pointer_type (char_type_node)))
-    return (unsigned_p
-	    ? make_unsigned_type (GET_MODE_PRECISION (mode))
-	    : make_signed_type (GET_MODE_PRECISION (mode)));
-
-  if (mode == TYPE_MODE (build_pointer_type (integer_type_node)))
-    return (unsigned_p
-	    ? make_unsigned_type (GET_MODE_PRECISION (mode))
-	    : make_signed_type (GET_MODE_PRECISION (mode)));
+  if (mode == TYPE_MODE (build_pointer_type (char_type_node))
+      || mode == TYPE_MODE (build_pointer_type (integer_type_node)))
+    {
+      unsigned int precision
+	= GET_MODE_PRECISION (as_a <scalar_int_mode> (mode));
+      return (unsigned_p
+	      ? make_unsigned_type (precision)
+	      : make_signed_type (precision));
+    }
 
   if (COMPLEX_MODE_P (mode))
     {

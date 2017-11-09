@@ -546,8 +546,8 @@ new_insn_reg (rtx_insn *insn, int regno, enum op_type type,
   lra_insn_reg *ir = lra_insn_reg_pool.allocate ();
   ir->type = type;
   ir->biggest_mode = mode;
-  if (GET_MODE_SIZE (mode) > GET_MODE_SIZE (lra_reg_info[regno].biggest_mode)
-      && NONDEBUG_INSN_P (insn))
+  if (NONDEBUG_INSN_P (insn)
+      && partial_subreg_p (lra_reg_info[regno].biggest_mode, mode))
     lra_reg_info[regno].biggest_mode = mode;
   ir->subreg_p = subreg_p;
   ir->early_clobber = early_clobber;
@@ -596,7 +596,7 @@ static struct lra_operand_data debug_operand_data =
   {
     NULL, /* alternative  */
     0, /* early_clobber_alts */
-    VOIDmode, /* We are not interesting in the operand mode.  */
+    E_VOIDmode, /* We are not interesting in the operand mode.  */
     OP_IN,
     0, 0, 0, 0
   };
@@ -820,7 +820,8 @@ collect_non_operand_hard_regs (rtx *x, lra_insn_recog_data_t data,
   const char *fmt = GET_RTX_FORMAT (code);
 
   for (i = 0; i < data->insn_static_data->n_operands; i++)
-    if (x == data->operand_loc[i])
+    if (! data->insn_static_data->operand[i].is_operator
+	&& x == data->operand_loc[i])
       /* It is an operand loc. Stop here.  */
       return list;
   for (i = 0; i < data->insn_static_data->n_dups; i++)
@@ -831,14 +832,11 @@ collect_non_operand_hard_regs (rtx *x, lra_insn_recog_data_t data,
   subreg_p = false;
   if (code == SUBREG)
     {
+      mode = wider_subreg_mode (op);
+      if (read_modify_subreg_p (op))
+	subreg_p = true;
       op = SUBREG_REG (op);
       code = GET_CODE (op);
-      if (GET_MODE_SIZE (mode) < GET_MODE_SIZE (GET_MODE (op)))
-	{
-	  mode = GET_MODE (op);
-	  if (GET_MODE_SIZE (mode) > REGMODE_NATURAL_SIZE (mode))
-	    subreg_p = true;
-	}
     }
   if (REG_P (op))
     {
@@ -846,9 +844,7 @@ collect_non_operand_hard_regs (rtx *x, lra_insn_recog_data_t data,
 	return list;
       /* Process all regs even unallocatable ones as we need info
 	 about all regs for rematerialization pass.  */
-      for (last = regno + hard_regno_nregs[regno][mode];
-	   regno < last;
-	   regno++)
+      for (last = end_hard_regno (mode, regno); regno < last; regno++)
 	{
 	  for (curr = list; curr != NULL; curr = curr->next)
 	    if (curr->regno == regno && curr->subreg_p == subreg_p
@@ -1428,14 +1424,11 @@ add_regs_to_insn_regno_info (lra_insn_recog_data_t data, rtx x, int uid,
   subreg_p = false;
   if (GET_CODE (x) == SUBREG)
     {
+      mode = wider_subreg_mode (x);
+      if (read_modify_subreg_p (x))
+	subreg_p = true;
       x = SUBREG_REG (x);
       code = GET_CODE (x);
-      if (GET_MODE_SIZE (mode) < GET_MODE_SIZE (GET_MODE (x)))
-	{
-	  mode = GET_MODE (x);
-	  if (GET_MODE_SIZE (mode) > REGMODE_NATURAL_SIZE (mode))
-	    subreg_p = true;
-	}
     }
   if (REG_P (x))
     {
@@ -1913,7 +1906,7 @@ lra_substitute_pseudo (rtx *loc, int old_regno, rtx new_reg, bool subreg_p)
       if (mode != inner_mode
 	  && ! (CONST_INT_P (new_reg) && SCALAR_INT_MODE_P (mode)))
 	{
-	  if (GET_MODE_SIZE (mode) >= GET_MODE_SIZE (inner_mode)
+	  if (!partial_subreg_p (mode, inner_mode)
 	      || ! SCALAR_INT_MODE_P (inner_mode))
 	    new_reg = gen_rtx_SUBREG (mode, new_reg, 0);
 	  else

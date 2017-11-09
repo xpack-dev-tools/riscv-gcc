@@ -148,12 +148,10 @@ extern int darwin_emit_branch_islands;
 
 /* Pad the outgoing args area to 16 bytes instead of the usual 8.  */
 
-#undef STARTING_FRAME_OFFSET
-#define STARTING_FRAME_OFFSET						\
-  (FRAME_GROWS_DOWNWARD							\
-   ? 0									\
-   : (RS6000_ALIGN (crtl->outgoing_args_size, 16)		\
-      + RS6000_SAVE_AREA))
+#undef RS6000_STARTING_FRAME_OFFSET
+#define RS6000_STARTING_FRAME_OFFSET					\
+  (RS6000_ALIGN (crtl->outgoing_args_size, 16)				\
+   + RS6000_SAVE_AREA)
 
 #undef STACK_DYNAMIC_OFFSET
 #define STACK_DYNAMIC_OFFSET(FUNDECL)					\
@@ -344,7 +342,7 @@ extern int darwin_emit_branch_islands;
    registers and memory.  FIRST is nonzero if this is the only
    element.  */
 #define BLOCK_REG_PADDING(MODE, TYPE, FIRST) \
-  (!(FIRST) ? upward : FUNCTION_ARG_PADDING (MODE, TYPE))
+  (!(FIRST) ? PAD_UPWARD : targetm.calls.function_arg_padding (MODE, TYPE))
 
 #define DOUBLE_INT_ASM_OP "\t.quad\t"
 

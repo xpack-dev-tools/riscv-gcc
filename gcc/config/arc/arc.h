@@ -65,9 +65,9 @@ along with GCC; see the file COPYING3.  If not see
 %(subtarget_cpp_spec)"
 
 #undef CC1_SPEC
-#define CC1_SPEC "\
-%{EB:%{EL:%emay not use both -EB and -EL}} \
-%{EB:-mbig-endian} %{EL:-mlittle-endian} \
+#define CC1_SPEC "%{EB:%{EL:%emay not use both -EB and -EL}}	\
+%{EB:-mbig-endian} %{EL:-mlittle-endian}			\
+%{G*}								\
 "
 extern const char *arc_cpu_to_as (int argc, const char **argv);
 
@@ -271,13 +271,6 @@ if (GET_MODE_CLASS (MODE) == MODE_INT		\
 /* The best alignment to use in cases where we have a choice.  */
 #define FASTEST_ALIGNMENT 32
 
-/* Make strings word-aligned so strcpy from constants will be faster.  */
-#define CONSTANT_ALIGNMENT(EXP, ALIGN)  \
-  ((TREE_CODE (EXP) == STRING_CST	\
-    && (ALIGN) < FASTEST_ALIGNMENT)	\
-   ? FASTEST_ALIGNMENT : (ALIGN))
-
-
 /* Make arrays of chars word-aligned for the same reasons.  */
 #define LOCAL_ALIGNMENT(TYPE, ALIGN)             \
   (TREE_CODE (TYPE) == ARRAY_TYPE               \
@@ -441,36 +434,6 @@ if (GET_MODE_CLASS (MODE) == MODE_INT		\
   48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62,		\
   27, 28, 29, 30, 31, 63}
 
-/* Return number of consecutive hard regs needed starting at reg REGNO
-   to hold something of mode MODE.
-   This is ordinarily the length in words of a value of mode MODE
-   but can be less for certain modes in special long registers.  */
-#define HARD_REGNO_NREGS(REGNO, MODE) \
-((GET_MODE_SIZE (MODE) == 16 \
-  && REGNO >= ARC_FIRST_SIMD_VR_REG && REGNO <= ARC_LAST_SIMD_VR_REG) ? 1 \
- : (GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1) / UNITS_PER_WORD)
-
-/* Value is 1 if hard register REGNO can hold a value of machine-mode MODE.  */
-extern unsigned int arc_hard_regno_mode_ok[];
-extern unsigned int arc_mode_class[];
-#define HARD_REGNO_MODE_OK(REGNO, MODE) \
-((arc_hard_regno_mode_ok[REGNO] & arc_mode_class[MODE]) != 0)
-
-/* A C expression that is nonzero if it is desirable to choose
-   register allocation so as to avoid move instructions between a
-   value of mode MODE1 and a value of mode MODE2.
-
-   If `HARD_REGNO_MODE_OK (R, MODE1)' and `HARD_REGNO_MODE_OK (R,
-   MODE2)' are ever different for any R, then `MODES_TIEABLE_P (MODE1,
-   MODE2)' must be zero.  */
-
-/* Tie QI/HI/SI modes together.  */
-#define MODES_TIEABLE_P(MODE1, MODE2) \
-(GET_MODE_CLASS (MODE1) == MODE_INT		\
- && GET_MODE_CLASS (MODE2) == MODE_INT		\
- && GET_MODE_SIZE (MODE1) <= UNITS_PER_WORD	\
- && GET_MODE_SIZE (MODE2) <= UNITS_PER_WORD)
-
 /* Internal macros to classify a register number as to whether it's a
    general purpose register for compact insns (r0-r3,r12-r15), or
    stack pointer (r28).  */
@@ -581,15 +544,15 @@ enum reg_class
   {0x0000f00f, 0x00000000, 0x00000000, 0x00000000, 0x00000000},	     /* 'q', r0-r3, r12-r15 */		\
   {0x1000f00f, 0x00000000, 0x00000000, 0x00000000, 0x00000000},	     /* 'e', r0-r3, r12-r15, sp */	\
   {0x1c001fff, 0x00000000, 0x00000000, 0x00000000, 0x00000000},    /* "Rsc", r0-r12 */ \
-  {0x9fffffff, 0xc0000000, 0x00000000, 0x00000000, 0x00000000},      /* 'r', r0-r28, blink, ap and pcl */	\
+  {0x9fffffff, 0x80000000, 0x00000000, 0x00000000, 0x00000000},      /* 'r', r0-r28, blink, ap and pcl */	\
   {0xffffffff, 0x00000000, 0x00000000, 0x00000000, 0x00000000},      /* 'W',  r0-r31 */ \
   /* Include ap / pcl in WRITABLE_CORE_REGS for sake of symmetry.  As these \
      registers are fixed, it does not affect the literal meaning of the \
      constraints, but it makes it a superset of GENERAL_REGS, thus \
      enabling some operations that would otherwise not be possible.  */ \
-  {0xffffffff, 0xd0000000, 0x00000000, 0x00000000, 0x00000000},      /* 'w', r0-r31, r60 */ \
-  {0xffffffff, 0xdfffffff, 0x00000000, 0x00000000, 0x00000000},      /* 'c', r0-r60, ap, pcl */ \
-  {0xffffffff, 0xdfffffff, 0x00000000, 0x00000000, 0x00000000},      /* 'Rac', r0-r60, ap, pcl */ \
+  {0xffffffff, 0x00000000, 0x00000000, 0x00000000, 0x00000000},      /* 'w', r0-r31, r60 */ \
+  {0xffffffff, 0x9fffffff, 0x00000000, 0x00000000, 0x00000000},      /* 'c', r0-r60, ap, pcl */ \
+  {0xffffffff, 0x9fffffff, 0x00000000, 0x00000000, 0x00000000},      /* 'Rac', r0-r60, ap, pcl */ \
   {0x0000000f, 0x00000000, 0x00000000, 0x00000000, 0x00000000},      /* 'Rcd', r0-r3 */ \
   {0x00000003, 0x00000000, 0x00000000, 0x00000000, 0x00000000},      /* 'Rsd', r0-r1 */ \
   {0x9fffffff, 0x00000000, 0x00000000, 0x00000000, 0x00000000},      /* 'h',  r0-28, r30 */ \
@@ -694,12 +657,6 @@ extern enum reg_class arc_regno_reg_class[];
    that is, each additional local variable allocated
    goes at a more negative offset in the frame.  */
 #define FRAME_GROWS_DOWNWARD 1
-
-/* Offset within stack frame to start allocating local variables at.
-   If FRAME_GROWS_DOWNWARD, this is the offset to the END of the
-   first local allocated.  Otherwise, it is the offset to the BEGINNING
-   of the first local allocated.  */
-#define STARTING_FRAME_OFFSET 0
 
 /* Offset from the stack pointer register to the first location at which
    outgoing arguments are placed.  */
@@ -1314,9 +1271,9 @@ do {							\
   ASM_GENERATE_INTERNAL_LABEL (label, "L", VALUE);	\
   switch (GET_MODE (BODY))				\
     {							\
-    case QImode: fprintf (FILE, "\t.byte "); break;	\
-    case HImode: fprintf (FILE, "\t.hword "); break;	\
-    case SImode: fprintf (FILE, "\t.word "); break;	\
+    case E_QImode: fprintf (FILE, "\t.byte "); break;	\
+    case E_HImode: fprintf (FILE, "\t.hword "); break;	\
+    case E_SImode: fprintf (FILE, "\t.word "); break;	\
     default: gcc_unreachable ();			\
     }							\
   assemble_name (FILE, label);				\
@@ -1351,7 +1308,7 @@ do {							\
    of a loop.  */
 /* On the ARC, align loops to 4 byte boundaries unless doing all-out size
    optimization.  */
-#define LOOP_ALIGN JUMP_ALIGN
+#define LOOP_ALIGN(X) 0
 
 #define LABEL_ALIGN(LABEL) (arc_label_align (LABEL))
 
@@ -1448,7 +1405,7 @@ do { \
   (exact_log2 (GET_MODE_SIZE (GET_MODE (PATTERN (VEC_INSN)))))
 #undef ASM_OUTPUT_BEFORE_CASE_LABEL
 #define ASM_OUTPUT_BEFORE_CASE_LABEL(FILE, PREFIX, NUM, TABLE) \
-  ASM_OUTPUT_ALIGN ((FILE), ADDR_VEC_ALIGN (TABLE));
+  ASM_OUTPUT_ALIGN ((FILE), ADDR_VEC_ALIGN (TABLE))
 
 #define INSN_LENGTH_ALIGNMENT(INSN)		  \
   ((JUMP_TABLE_DATA_P (INSN)			  \
@@ -1478,10 +1435,6 @@ do { \
    low-order few bits.
 */
 #define SHIFT_COUNT_TRUNCATED 1
-
-/* Value is 1 if truncating an integer of INPREC bits to OUTPREC bits
-   is done just by pretending it is already truncated.  */
-#define TRULY_NOOP_TRUNCATION(OUTPREC, INPREC) 1
 
 /* We assume that the store-condition-codes instructions store 0 for false
    and some other value for true.  This is the value stored for true.  */

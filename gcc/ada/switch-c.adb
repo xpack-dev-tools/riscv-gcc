@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2001-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 2001-2017, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -548,7 +548,6 @@ package body Switch.C is
                         Warn_On_Bad_Fixed_Value          := True; -- -gnatwb
                         Warn_On_Biased_Representation    := True; -- -gnatw.b
                         Warn_On_Export_Import            := True; -- -gnatwx
-                        Warn_On_Modified_Unread          := True; -- -gnatwm
                         Warn_On_No_Value_Assigned        := True; -- -gnatwv
                         Warn_On_Object_Renames_Function  := True; -- -gnatw.r
                         Warn_On_Overlap                  := True; -- -gnatw.i
@@ -1143,19 +1142,24 @@ package body Switch.C is
                while Ptr <= Max loop
                   C := Switch_Chars (Ptr);
 
-                  if C in '1' .. '3' then
+                  case C is
+
+                  when '0' .. '3' =>
                      List_Representation_Info :=
                        Character'Pos (C) - Character'Pos ('0');
 
-                  elsif Switch_Chars (Ptr) = 's' then
+                  when 's' =>
                      List_Representation_Info_To_File := True;
 
-                  elsif Switch_Chars (Ptr) = 'm' then
+                  when 'm' =>
                      List_Representation_Info_Mechanisms := True;
 
-                  else
+                  when 'e' =>
+                     List_Representation_Info_Extended := True;
+
+                  when others =>
                      Bad_Switch ("-gnatR" & Switch_Chars (Ptr .. Max));
-                  end if;
+                  end case;
 
                   Ptr := Ptr + 1;
                end loop;
@@ -1263,7 +1267,19 @@ package body Switch.C is
                         Bad_Switch ("-gnatw." & Switch_Chars (Ptr .. Max));
                      end if;
 
-                     --  Normal case, no dot
+                  --  Case of underscore switch
+
+                  elsif C = '_' and then Ptr < Max then
+                     Ptr := Ptr + 1;
+                     C := Switch_Chars (Ptr);
+
+                     if Set_Underscore_Warning_Switch (C) then
+                        Store_Compilation_Switch ("-gnatw_" & C);
+                     else
+                        Bad_Switch ("-gnatw_" & Switch_Chars (Ptr .. Max));
+                     end if;
+
+                  --  Normal case, no dot
 
                   else
                      if Set_Warning_Switch (C) then

@@ -105,6 +105,13 @@ arm_ternop_qualifiers[SIMD_MAX_BUILTIN_ARGS]
   = { qualifier_none, qualifier_none, qualifier_none, qualifier_none };
 #define TERNOP_QUALIFIERS (arm_ternop_qualifiers)
 
+/* unsigned T (unsigned T, unsigned T, unsigned T).  */
+static enum arm_type_qualifiers
+arm_unsigned_uternop_qualifiers[SIMD_MAX_BUILTIN_ARGS]
+  = { qualifier_unsigned, qualifier_unsigned, qualifier_unsigned,
+      qualifier_unsigned };
+#define UTERNOP_QUALIFIERS (arm_unsigned_uternop_qualifiers)
+
 /* T (T, immediate).  */
 static enum arm_type_qualifiers
 arm_binop_imm_qualifiers[SIMD_MAX_BUILTIN_ARGS]
@@ -130,6 +137,13 @@ arm_mac_lane_qualifiers[SIMD_MAX_BUILTIN_ARGS]
   = { qualifier_none, qualifier_none, qualifier_none,
       qualifier_none, qualifier_lane_index };
 #define MAC_LANE_QUALIFIERS (arm_mac_lane_qualifiers)
+
+/* unsigned T (unsigned T, unsigned T, unsigend T, lane index).  */
+static enum arm_type_qualifiers
+arm_umac_lane_qualifiers[SIMD_MAX_BUILTIN_ARGS]
+  = { qualifier_unsigned, qualifier_unsigned, qualifier_unsigned,
+      qualifier_unsigned, qualifier_lane_index };
+#define UMAC_LANE_QUALIFIERS (arm_umac_lane_qualifiers)
 
 /* T (T, T, immediate).  */
 static enum arm_type_qualifiers
@@ -255,24 +269,24 @@ arm_storestruct_lane_qualifiers[SIMD_MAX_BUILTIN_ARGS]
       qualifier_none, qualifier_struct_load_store_lane_index };
 #define STORE1LANE_QUALIFIERS (arm_storestruct_lane_qualifiers)
 
-#define v8qi_UP  V8QImode
-#define v4hi_UP  V4HImode
-#define v4hf_UP  V4HFmode
-#define v2si_UP  V2SImode
-#define v2sf_UP  V2SFmode
-#define di_UP    DImode
-#define v16qi_UP V16QImode
-#define v8hi_UP  V8HImode
-#define v8hf_UP  V8HFmode
-#define v4si_UP  V4SImode
-#define v4sf_UP  V4SFmode
-#define v2di_UP  V2DImode
-#define ti_UP	 TImode
-#define ei_UP	 EImode
-#define oi_UP	 OImode
-#define hf_UP	 HFmode
-#define si_UP	 SImode
-#define void_UP	 VOIDmode
+#define v8qi_UP  E_V8QImode
+#define v4hi_UP  E_V4HImode
+#define v4hf_UP  E_V4HFmode
+#define v2si_UP  E_V2SImode
+#define v2sf_UP  E_V2SFmode
+#define di_UP    E_DImode
+#define v16qi_UP E_V16QImode
+#define v8hi_UP  E_V8HImode
+#define v8hf_UP  E_V8HFmode
+#define v4si_UP  E_V4SImode
+#define v4sf_UP  E_V4SFmode
+#define v2di_UP  E_V2DImode
+#define ti_UP	 E_TImode
+#define ei_UP	 E_EImode
+#define oi_UP	 E_OImode
+#define hf_UP	 E_HFmode
+#define si_UP	 E_SImode
+#define void_UP	 E_VOIDmode
 
 #define UP(X) X##_UP
 
@@ -815,29 +829,29 @@ arm_simd_builtin_std_type (machine_mode mode,
   ((q == qualifier_none) ? int##M##_type_node : unsigned_int##M##_type_node);
   switch (mode)
     {
-    case QImode:
+    case E_QImode:
       return QUAL_TYPE (QI);
-    case HImode:
+    case E_HImode:
       return QUAL_TYPE (HI);
-    case SImode:
+    case E_SImode:
       return QUAL_TYPE (SI);
-    case DImode:
+    case E_DImode:
       return QUAL_TYPE (DI);
-    case TImode:
+    case E_TImode:
       return QUAL_TYPE (TI);
-    case OImode:
+    case E_OImode:
       return arm_simd_intOI_type_node;
-    case EImode:
+    case E_EImode:
       return arm_simd_intEI_type_node;
-    case CImode:
+    case E_CImode:
       return arm_simd_intCI_type_node;
-    case XImode:
+    case E_XImode:
       return arm_simd_intXI_type_node;
-    case HFmode:
+    case E_HFmode:
       return arm_fp16_type_node;
-    case SFmode:
+    case E_SFmode:
       return float_type_node;
-    case DFmode:
+    case E_DFmode:
       return double_type_node;
     default:
       gcc_unreachable ();
@@ -1677,16 +1691,16 @@ arm_init_iwmmxt_builtins (void)
 
       switch (mode)
 	{
-	case V8QImode:
+	case E_V8QImode:
 	  type = v8qi_ftype_v8qi_v8qi;
 	  break;
-	case V4HImode:
+	case E_V4HImode:
 	  type = v4hi_ftype_v4hi_v4hi;
 	  break;
-	case V2SImode:
+	case E_V2SImode:
 	  type = v2si_ftype_v2si_v2si;
 	  break;
-	case DImode:
+	case E_DImode:
 	  type = di_ftype_di_di;
 	  break;
 

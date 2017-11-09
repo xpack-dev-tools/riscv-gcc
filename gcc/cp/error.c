@@ -27,6 +27,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "intl.h"
 #include "cxx-pretty-print.h"
 #include "tree-pretty-print.h"
+#include "gimple-pretty-print.h"
 #include "c-family/c-objc.h"
 #include "ubsan.h"
 #include "internal-fn.h"
@@ -49,13 +50,12 @@ static cxx_pretty_printer * const cxx_pp = &actual_pretty_printer;
 # define NEXT_CODE(T) (TREE_CODE (TREE_TYPE (T)))
 
 static const char *args_to_string (tree, int);
-static const char *assop_to_string (enum tree_code);
 static const char *code_to_string (enum tree_code);
 static const char *cv_to_string (tree, int);
 static const char *decl_to_string (tree, int);
 static const char *expr_to_string (tree);
 static const char *fndecl_to_string (tree, int);
-static const char *op_to_string	(enum tree_code);
+static const char *op_to_string	(bool, enum tree_code);
 static const char *parm_to_string (int);
 static const char *type_to_string (tree, int);
 
@@ -1573,6 +1573,7 @@ dump_function_decl (cxx_pretty_printer *pp, tree t, int flags)
   int do_outer_scope = ! (flags & TFF_UNQUALIFIED_NAME);
   tree exceptions;
   bool constexpr_p;
+  tree ret = NULL_TREE;
 
   flags &= ~(TFF_UNQUALIFIED_NAME | TFF_TEMPLATE_NAME);
   if (TREE_CODE (t) == TEMPLATE_DECL)
@@ -1635,7 +1636,7 @@ dump_function_decl (cxx_pretty_printer *pp, tree t, int flags)
 		   && !DECL_DESTRUCTOR_P (t) && !deduction_guide_p (t));
   if (show_return)
     {
-      tree ret = fndecl_declared_return_type (t);
+      ret = fndecl_declared_return_type (t);
       dump_type_prefix (pp, ret, flags);
     }
 
@@ -1676,7 +1677,7 @@ dump_function_decl (cxx_pretty_printer *pp, tree t, int flags)
 	}
 
       if (show_return)
-	dump_type_suffix (pp, TREE_TYPE (fntype), flags);
+	dump_type_suffix (pp, ret, flags);
       else if (deduction_guide_p (t))
 	{
 	  pp_cxx_ws_string (pp, "->");
@@ -2228,8 +2229,7 @@ dump_expr (cxx_pretty_printer *pp, tree t, int flags)
 
     case INIT_EXPR:
     case MODIFY_EXPR:
-      dump_binary_op (pp, assignment_operator_name_info[NOP_EXPR].name,
-		      t, flags);
+      dump_binary_op (pp, OVL_OP_INFO (true, NOP_EXPR)->name, t, flags);
       break;
 
     case PLUS_EXPR:
@@ -2253,7 +2253,7 @@ dump_expr (cxx_pretty_printer *pp, tree t, int flags)
     case EQ_EXPR:
     case NE_EXPR:
     case EXACT_DIV_EXPR:
-      dump_binary_op (pp, operator_name_info[TREE_CODE (t)].name, t, flags);
+      dump_binary_op (pp, OVL_OP_INFO (false, TREE_CODE (t))->name, t, flags);
       break;
 
     case CEIL_DIV_EXPR:
@@ -2384,14 +2384,14 @@ dump_expr (cxx_pretty_printer *pp, tree t, int flags)
     case TRUTH_NOT_EXPR:
     case PREDECREMENT_EXPR:
     case PREINCREMENT_EXPR:
-      dump_unary_op (pp, operator_name_info [TREE_CODE (t)].name, t, flags);
+      dump_unary_op (pp, OVL_OP_INFO (false, TREE_CODE (t))->name, t, flags);
       break;
 
     case POSTDECREMENT_EXPR:
     case POSTINCREMENT_EXPR:
       pp_cxx_left_paren (pp);
       dump_expr (pp, TREE_OPERAND (t, 0), flags | TFF_EXPR_IN_PARENS);
-      pp_cxx_ws_string (pp, operator_name_info[TREE_CODE (t)].name);
+      pp_cxx_ws_string (pp, OVL_OP_INFO (false, TREE_CODE (t))->name);
       pp_cxx_right_paren (pp);
       break;
 
@@ -2654,7 +2654,7 @@ dump_expr (cxx_pretty_printer *pp, tree t, int flags)
 
     case REALPART_EXPR:
     case IMAGPART_EXPR:
-      pp_cxx_ws_string (pp, operator_name_info[TREE_CODE (t)].name);
+      pp_cxx_ws_string (pp, OVL_OP_INFO (false, TREE_CODE (t))->name);
       pp_cxx_whitespace (pp);
       dump_expr (pp, TREE_OPERAND (t, 0), flags);
       break;
@@ -3046,6 +3046,8 @@ location_of (tree t)
 
   if (DECL_P (t))
     return DECL_SOURCE_LOCATION (t);
+  if (TREE_CODE (t) == DEFAULT_ARG)
+    return defarg_location (t);
   return EXPR_LOC_OR_LOC (t, input_location);
 }
 
@@ -3132,9 +3134,9 @@ parm_to_string (int p)
 }
 
 static const char *
-op_to_string (enum tree_code p)
+op_to_string (bool assop, enum tree_code p)
 {
-  tree id = operator_name_info[p].identifier;
+  tree id = ovl_op_identifier (assop, p);
   return id ? IDENTIFIER_POINTER (id) : M_("<unknown>");
 }
 
@@ -3173,13 +3175,6 @@ type_to_string (tree typ, int verbose)
 	p[len] = '\0';
     }
   return pp_ggc_formatted_text (cxx_pp);
-}
-
-static const char *
-assop_to_string (enum tree_code p)
-{
-  tree id = assignment_operator_name_info[(int) p].identifier;
-  return id ? IDENTIFIER_POINTER (id) : M_("{unknown}");
 }
 
 static const char *
@@ -4040,16 +4035,21 @@ cp_printer (pretty_printer *pp, text_info *text, const char *spec,
     case 'E': result = expr_to_string (next_tree);		break;
     case 'F': result = fndecl_to_string (next_tree, verbose);	break;
     case 'L': result = language_to_string (next_lang);		break;
-    case 'O': result = op_to_string (next_tcode);		break;
+    case 'O': result = op_to_string (false, next_tcode);	break;
     case 'P': result = parm_to_string (next_int);		break;
-    case 'Q': result = assop_to_string (next_tcode);		break;
+    case 'Q': result = op_to_string (true, next_tcode);		break;
     case 'S': result = subst_to_string (next_tree);		break;
     case 'T': result = type_to_string (next_tree, verbose);	break;
     case 'V': result = cv_to_string (next_tree, verbose);	break;
     case 'X': result = eh_spec_to_string (next_tree, verbose);  break;
 
+    case 'G':
+      percent_G_format (text);
+      return true;
+
     case 'K':
-      percent_K_format (text);
+      t = va_arg (*text->args_ptr, tree);
+      percent_K_format (text, t);
       return true;
 
     case 'H':

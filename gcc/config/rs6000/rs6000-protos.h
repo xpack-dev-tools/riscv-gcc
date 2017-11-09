@@ -110,12 +110,6 @@ extern enum reg_class (*rs6000_preferred_reload_class_ptr) (rtx,
 extern enum reg_class (*rs6000_secondary_reload_class_ptr) (enum reg_class,
 							    machine_mode,
 							    rtx);
-extern bool (*rs6000_secondary_memory_needed_ptr) (enum reg_class,
-						   enum reg_class,
-						   machine_mode);
-extern bool (*rs6000_cannot_change_mode_class_ptr) (machine_mode,
-						    machine_mode,
-						    enum reg_class);
 extern void rs6000_secondary_reload_inner (rtx, rtx, rtx, bool);
 extern void rs6000_secondary_reload_gpr (rtx, rtx, rtx, bool);
 extern int paired_emit_vector_cond_expr (rtx, rtx, rtx,
@@ -130,18 +124,20 @@ extern void print_operand_address (FILE *, rtx);
 extern enum rtx_code rs6000_reverse_condition (machine_mode,
 					       enum rtx_code);
 extern rtx rs6000_emit_eqne (machine_mode, rtx, rtx, rtx);
-extern void rs6000_emit_sISEL (machine_mode, rtx[]);
 extern void rs6000_emit_sCOND (machine_mode, rtx[]);
 extern void rs6000_emit_cbranch (machine_mode, rtx[]);
 extern char * output_cbranch (rtx, const char *, int, rtx_insn *);
-extern const char * output_probe_stack_range (rtx, rtx);
+extern const char * output_probe_stack_range (rtx, rtx, rtx);
 extern void rs6000_emit_dot_insn (rtx dst, rtx src, int dot, rtx ccreg);
 extern bool rs6000_emit_set_const (rtx, rtx);
 extern int rs6000_emit_cmove (rtx, rtx, rtx, rtx);
+extern int rs6000_emit_int_cmove (rtx, rtx, rtx, rtx);
 extern int rs6000_emit_vector_cond_expr (rtx, rtx, rtx, rtx, rtx, rtx);
 extern void rs6000_emit_minmax (rtx, enum rtx_code, rtx, rtx);
 extern void rs6000_split_signbit (rtx, rtx);
 extern void rs6000_expand_atomic_compare_and_swap (rtx op[]);
+extern rtx swap_endian_selector_for_mode (machine_mode mode);
+
 extern void rs6000_expand_atomic_exchange (rtx op[]);
 extern void rs6000_expand_atomic_op (enum rtx_code, rtx, rtx, rtx, rtx, rtx);
 extern void rs6000_emit_swdiv (rtx, rtx, rtx, bool);
@@ -155,7 +151,6 @@ extern void rs6000_emit_le_vsx_permute (rtx, rtx, machine_mode);
 extern void rs6000_emit_le_vsx_move (rtx, rtx, machine_mode);
 extern bool valid_sf_si_move (rtx, rtx, machine_mode);
 extern void rs6000_emit_move (rtx, rtx, machine_mode);
-extern machine_mode rs6000_secondary_memory_needed_mode (machine_mode);
 extern rtx (*rs6000_legitimize_reload_address_ptr) (rtx, machine_mode,
 						    int, int, int, int *);
 extern bool rs6000_legitimate_offset_address_p (machine_mode, rtx,
@@ -197,10 +192,6 @@ extern void rs6000_xcoff_asm_output_aligned_decl_common (FILE *, tree,
 							 unsigned HOST_WIDE_INT);
 extern void rs6000_elf_declare_function_name (FILE *, const char *, tree);
 extern bool rs6000_elf_in_small_data_p (const_tree);
-#ifdef ARGS_SIZE_RTX
-/* expr.h defines ARGS_SIZE_RTX and `enum direction' */
-extern enum direction function_arg_padding (machine_mode, const_tree);
-#endif /* ARGS_SIZE_RTX */
 
 #endif /* TREE_CODE */
 
@@ -220,7 +211,6 @@ extern void rs6000_emit_epilogue (int);
 extern void rs6000_expand_split_stack_prologue (void);
 extern void rs6000_split_stack_space_check (rtx, rtx);
 extern void rs6000_emit_eh_reg_restore (rtx, rtx);
-extern const char * output_isel (rtx *);
 extern void rs6000_call_aix (rtx, rtx, rtx, rtx);
 extern void rs6000_sibcall_aix (rtx, rtx, rtx, rtx);
 extern void rs6000_aix_asm_output_dwarf_table_ref (char *);
@@ -241,6 +231,7 @@ extern void rs6000_cpu_cpp_builtins (struct cpp_reader *);
 #ifdef TREE_CODE
 extern bool rs6000_pragma_target_parse (tree, tree);
 #endif
+extern void rs6000_activate_target_options (tree new_tree);
 extern void rs6000_target_modify_macros (bool, HOST_WIDE_INT, HOST_WIDE_INT);
 extern void (*rs6000_target_modify_macros_ptr) (bool, HOST_WIDE_INT,
 						HOST_WIDE_INT);
@@ -255,7 +246,6 @@ const char * rs6000_xcoff_strip_dollar (const char *);
 
 void rs6000_final_prescan_insn (rtx_insn *, rtx *operand, int num_operands);
 
-extern bool rs6000_hard_regno_mode_ok_p[][FIRST_PSEUDO_REGISTER];
 extern unsigned char rs6000_class_max_nregs[][LIM_REG_CLASSES];
 extern unsigned char rs6000_hard_regno_nregs[][FIRST_PSEUDO_REGISTER];
 

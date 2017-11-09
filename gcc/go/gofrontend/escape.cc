@@ -575,7 +575,7 @@ debug_function_name(Named_object* fn)
 
   // Extract #.
   std::string name = Gogo::unpack_hidden_name(fn->name());
-  int closure_num = (int)strtol(name.substr(6).c_str(), NULL, 0);
+  int closure_num = Gogo::nested_function_num(fn->name());
   closure_num++;
 
   name = Gogo::unpack_hidden_name(enclosing->name());
@@ -690,6 +690,12 @@ void
 Gogo::analyze_escape()
 {
   if (!optimize_allocation_flag.is_enabled() || saw_errors())
+    return;
+
+  // Currently runtime is hard-coded to non-escape in various places.
+  // Don't run escape analysis for runtime.
+  // TODO: remove this once it works for runtime.
+  if (this->compiling_runtime() && this->package_name() == "runtime")
     return;
 
   // Discover strongly connected groups of functions to analyze for escape

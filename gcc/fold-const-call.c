@@ -60,7 +60,8 @@ host_size_t_cst_p (tree t, size_t *size_out)
 {
   if (types_compatible_p (size_type_node, TREE_TYPE (t))
       && integer_cst_p (t)
-      && wi::min_precision (t, UNSIGNED) <= sizeof (size_t) * CHAR_BIT)
+      && (wi::min_precision (wi::to_wide (t), UNSIGNED)
+	  <= sizeof (size_t) * CHAR_BIT))
     {
       *size_out = tree_to_uhwi (t);
       return true;
@@ -595,6 +596,7 @@ fold_const_call_ss (real_value *result, combined_fn fn,
   switch (fn)
     {
     CASE_CFN_SQRT:
+    CASE_CFN_SQRT_FN:
       return (real_compare (GE_EXPR, arg, &dconst0)
 	      && do_mpfr_arg1 (result, mpfr_sqrt, arg, format));
 
@@ -844,7 +846,8 @@ fold_const_call_ss (wide_int *result, combined_fn fn, const wide_int_ref &arg,
 	int tmp;
 	if (wi::ne_p (arg, 0))
 	  tmp = wi::clz (arg);
-	else if (! CLZ_DEFINED_VALUE_AT_ZERO (TYPE_MODE (arg_type), tmp))
+	else if (!CLZ_DEFINED_VALUE_AT_ZERO (SCALAR_INT_TYPE_MODE (arg_type),
+					     tmp))
 	  tmp = TYPE_PRECISION (arg_type);
 	*result = wi::shwi (tmp, precision);
 	return true;
@@ -855,7 +858,8 @@ fold_const_call_ss (wide_int *result, combined_fn fn, const wide_int_ref &arg,
 	int tmp;
 	if (wi::ne_p (arg, 0))
 	  tmp = wi::ctz (arg);
-	else if (! CTZ_DEFINED_VALUE_AT_ZERO (TYPE_MODE (arg_type), tmp))
+	else if (!CTZ_DEFINED_VALUE_AT_ZERO (SCALAR_INT_TYPE_MODE (arg_type),
+					     tmp))
 	  tmp = TYPE_PRECISION (arg_type);
 	*result = wi::shwi (tmp, precision);
 	return true;
@@ -1039,8 +1043,8 @@ fold_const_call_1 (combined_fn fn, tree type, tree arg)
       if (SCALAR_INT_MODE_P (mode))
 	{
 	  wide_int result;
-	  if (fold_const_call_ss (&result, fn, arg, TYPE_PRECISION (type),
-				  TREE_TYPE (arg)))
+	  if (fold_const_call_ss (&result, fn, wi::to_wide (arg),
+				  TYPE_PRECISION (type), TREE_TYPE (arg)))
 	    return wide_int_to_tree (type, result);
 	}
       return NULL_TREE;
@@ -1176,14 +1180,17 @@ fold_const_call_sss (real_value *result, combined_fn fn,
       return do_mpfr_arg2 (result, mpfr_hypot, arg0, arg1, format);
 
     CASE_CFN_COPYSIGN:
+    CASE_CFN_COPYSIGN_FN:
       *result = *arg0;
       real_copysign (result, arg1);
       return true;
 
     CASE_CFN_FMIN:
+    CASE_CFN_FMIN_FN:
       return do_mpfr_arg2 (result, mpfr_min, arg0, arg1, format);
 
     CASE_CFN_FMAX:
+    CASE_CFN_FMAX_FN:
       return do_mpfr_arg2 (result, mpfr_max, arg0, arg1, format);
 
     CASE_CFN_POW:
@@ -1320,7 +1327,8 @@ fold_const_call_1 (combined_fn fn, tree type, tree arg0, tree arg1)
 	  /* real, int -> real.  */
 	  REAL_VALUE_TYPE result;
 	  if (fold_const_call_sss (&result, fn, TREE_REAL_CST_PTR (arg0),
-				   arg1, REAL_MODE_FORMAT (mode)))
+				   wi::to_wide (arg1),
+				   REAL_MODE_FORMAT (mode)))
 	    return build_real (type, result);
 	}
       return NULL_TREE;
@@ -1334,7 +1342,7 @@ fold_const_call_1 (combined_fn fn, tree type, tree arg0, tree arg1)
 	{
 	  /* int, real -> real.  */
 	  REAL_VALUE_TYPE result;
-	  if (fold_const_call_sss (&result, fn, arg0,
+	  if (fold_const_call_sss (&result, fn, wi::to_wide (arg0),
 				   TREE_REAL_CST_PTR (arg1),
 				   REAL_MODE_FORMAT (mode)))
 	    return build_real (type, result);
@@ -1469,6 +1477,7 @@ fold_const_call_ssss (real_value *result, combined_fn fn,
   switch (fn)
     {
     CASE_CFN_FMA:
+    CASE_CFN_FMA_FN:
       return do_mpfr_arg3 (result, mpfr_fma, arg0, arg1, arg2, format);
 
     default:

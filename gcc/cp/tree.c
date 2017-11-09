@@ -32,6 +32,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "debug.h"
 #include "convert.h"
 #include "gimplify.h"
+#include "stringpool.h"
 #include "attribs.h"
 #include "flags.h"
 
@@ -332,6 +333,10 @@ cp_stabilize_reference (tree ref)
 {
   switch (TREE_CODE (ref))
     {
+    case NON_DEPENDENT_EXPR:
+      /* We aren't actually evaluating this.  */
+      return ref;
+
     /* We need to treat specially anything stabilize_reference doesn't
        handle specifically.  */
     case VAR_DECL:
@@ -1203,7 +1208,7 @@ cp_build_qualified_type_real (tree type,
       tree t = PACK_EXPANSION_PATTERN (type);
 
       t = cp_build_qualified_type_real (t, type_quals, complain);
-      return make_pack_expansion (t);
+      return make_pack_expansion (t, complain);
     }
 
   /* A reference or method type shall not be cv-qualified.
@@ -1434,7 +1439,11 @@ strip_typedefs (tree t, bool *remove_attributes)
 	  is_variant = true;
 
 	type = strip_typedefs (TREE_TYPE (t), remove_attributes);
-	changed = type != TREE_TYPE (t) || is_variant;
+	tree canon_spec = (flag_noexcept_type
+			   ? canonical_eh_spec (TYPE_RAISES_EXCEPTIONS (t))
+			   : NULL_TREE);
+	changed = (type != TREE_TYPE (t) || is_variant
+		   || TYPE_RAISES_EXCEPTIONS (t) != canon_spec);
 
 	for (arg_node = TYPE_ARG_TYPES (t);
 	     arg_node;
@@ -1493,9 +1502,8 @@ strip_typedefs (tree t, bool *remove_attributes)
 					type_memfn_rqual (t));
 	  }
 
-	if (TYPE_RAISES_EXCEPTIONS (t))
-	  result = build_exception_variant (result,
-					    TYPE_RAISES_EXCEPTIONS (t));
+	if (canon_spec)
+	  result = build_exception_variant (result, canon_spec);
 	if (TYPE_HAS_LATE_RETURN_TYPE (t))
 	  TYPE_HAS_LATE_RETURN_TYPE (result) = 1;
       }
@@ -2027,6 +2035,7 @@ build_qualified_name (tree type, tree scope, tree name, bool template_p)
       || scope == error_mark_node
       || name == error_mark_node)
     return error_mark_node;
+  gcc_assert (TREE_CODE (name) != SCOPE_REF);
   t = build2 (SCOPE_REF, type, scope, name);
   QUALIFIED_NAME_IS_TEMPLATE (t) = template_p;
   PTRMEM_OK_P (t) = true;
@@ -2817,7 +2826,6 @@ extern int depth_reached;
 void
 cxx_print_statistics (void)
 {
-  print_search_statistics ();
   print_class_statistics ();
   print_template_statistics ();
   if (GATHER_STATISTICS)
@@ -3062,6 +3070,7 @@ struct replace_placeholders_t
 {
   tree obj;	    /* The object to be substituted for a PLACEHOLDER_EXPR.  */
   bool seen;	    /* Whether we've encountered a PLACEHOLDER_EXPR.  */
+  hash_set<tree> *pset;	/* To avoid walking same trees multiple times.  */
 };
 
 /* Like substitute_placeholder_in_expr, but handle C++ tree codes and
@@ -3084,8 +3093,8 @@ replace_placeholders_r (tree* t, int* walk_subtrees, void* data_)
     case PLACEHOLDER_EXPR:
       {
 	tree x = obj;
-	for (; !(same_type_ignoring_top_level_qualifiers_p
-		 (TREE_TYPE (*t), TREE_TYPE (x)));
+	for (; !same_type_ignoring_top_level_qualifiers_p (TREE_TYPE (*t),
+							   TREE_TYPE (x));
 	     x = TREE_OPERAND (x, 0))
 	  gcc_assert (TREE_CODE (x) == COMPONENT_REF);
 	*t = x;
@@ -3117,8 +3126,7 @@ replace_placeholders_r (tree* t, int* walk_subtrees, void* data_)
 		  valp = &TARGET_EXPR_INITIAL (*valp);
 	      }
 	    d->obj = subob;
-	    cp_walk_tree (valp, replace_placeholders_r,
-			  data_, NULL);
+	    cp_walk_tree (valp, replace_placeholders_r, data_, d->pset);
 	    d->obj = obj;
 	  }
 	*walk_subtrees = false;
@@ -3150,10 +3158,11 @@ replace_placeholders (tree exp, tree obj, bool *seen_p)
     return exp;
 
   tree *tp = &exp;
-  replace_placeholders_t data = { obj, false };
+  hash_set<tree> pset;
+  replace_placeholders_t data = { obj, false, &pset };
   if (TREE_CODE (exp) == TARGET_EXPR)
     tp = &TARGET_EXPR_INITIAL (exp);
-  cp_walk_tree (tp, replace_placeholders_r, &data, NULL);
+  cp_walk_tree (tp, replace_placeholders_r, &data, &pset);
   if (seen_p)
     *seen_p = data.seen;
   return exp;
@@ -3987,7 +3996,7 @@ type_has_nontrivial_copy_init (const_tree type)
 	    saw_non_deleted = true;
 	}
 
-      if (!saw_non_deleted && CLASSTYPE_METHOD_VEC (t))
+      if (!saw_non_deleted)
 	for (ovl_iterator iter (CLASSTYPE_CONSTRUCTORS (t)); iter; ++iter)
 	  {
 	    tree fn = *iter;
@@ -4625,6 +4634,21 @@ cxx_type_hash_eq (const_tree typea, const_tree typeb)
 			    TYPE_RAISES_EXCEPTIONS (typeb), ce_exact);
 }
 
+/* Copy the language-specific type variant modifiers from TYPEB to TYPEA.  For
+   C++, these are the exception-specifier and ref-qualifier.  */
+
+tree
+cxx_copy_lang_qualifiers (const_tree typea, const_tree typeb)
+{
+  tree type = CONST_CAST_TREE (typea);
+  if (TREE_CODE (type) == FUNCTION_TYPE || TREE_CODE (type) == METHOD_TYPE)
+    {
+      type = build_exception_variant (type, TYPE_RAISES_EXCEPTIONS (typeb));
+      type = build_ref_qualified_type (type, type_memfn_rqual (typeb));
+    }
+  return type;
+}
+
 /* Apply FUNC to all language-specific sub-trees of TP in a pre-order
    traversal.  Called from walk_tree.  */
 
@@ -4663,6 +4687,8 @@ cp_walk_subtrees (tree *tp, int *walk_subtrees_p, walk_tree_fn func,
       break;
 
     case BASELINK:
+      if (BASELINK_QUALIFIED_P (*tp))
+	WALK_SUBTREE (BINFO_TYPE (BASELINK_ACCESS_BINFO (*tp)));
       WALK_SUBTREE (BASELINK_FUNCTIONS (*tp));
       *walk_subtrees_p = 0;
       break;
@@ -4821,7 +4847,8 @@ special_function_p (const_tree decl)
     return sfk_move_constructor;
   if (DECL_CONSTRUCTOR_P (decl))
     return sfk_constructor;
-  if (DECL_OVERLOADED_OPERATOR_P (decl) == NOP_EXPR)
+  if (DECL_ASSIGNMENT_OPERATOR_P (decl)
+      && DECL_OVERLOADED_OPERATOR_IS (decl, NOP_EXPR))
     {
       if (copy_fn_p (decl))
 	return sfk_copy_assignment;

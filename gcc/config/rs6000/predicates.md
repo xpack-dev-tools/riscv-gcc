@@ -199,6 +199,16 @@
   return CA_REGNO_P (REGNO (op));
 })
 
+;; Return 1 if operand is constant zero (scalars and vectors).
+(define_predicate "zero_constant"
+  (and (match_code "const_int,const_double,const_wide_int,const_vector")
+       (match_test "op == CONST0_RTX (mode)")))
+
+;; Return 1 if operand is constant -1 (scalars and vectors).
+(define_predicate "all_ones_constant"
+  (and (match_code "const_int,const_double,const_wide_int,const_vector")
+       (match_test "op == CONSTM1_RTX (mode) && !FLOAT_MODE_P (mode)")))
+
 ;; Return 1 if op is a signed 5-bit constant integer.
 (define_predicate "s5bit_cint_operand"
   (and (match_code "const_int")
@@ -543,10 +553,14 @@
     (match_operand 0 "u_short_cint_operand")
     (match_operand 0 "gpc_reg_operand")))
 
-;; Return 1 if op is any constant integer 
-;; or non-special register.
+;; Return 1 if op is any constant integer or a non-special register.
 (define_predicate "reg_or_cint_operand"
   (ior (match_code "const_int")
+       (match_operand 0 "gpc_reg_operand")))
+
+;; Return 1 if op is constant zero or a non-special register.
+(define_predicate "reg_or_zero_operand"
+  (ior (match_operand 0 "zero_constant")
        (match_operand 0 "gpc_reg_operand")))
 
 ;; Return 1 if op is a constant integer valid for addition with addis, addi.
@@ -622,17 +636,17 @@
 
   switch (mode)
     {
-    case KFmode:
-    case IFmode:
-    case TFmode:
-    case DFmode:
-    case SFmode:
+    case E_KFmode:
+    case E_IFmode:
+    case E_TFmode:
+    case E_DFmode:
+    case E_SFmode:
       return 0;
 
-    case DImode:
+    case E_DImode:
       return (num_insns_constant (op, DImode) <= 2);
 
-    case SImode:
+    case E_SImode:
       return 1;
 
     default:
@@ -744,16 +758,6 @@
 	    (and (match_test "easy_altivec_constant (op, mode)")
 		 (match_test "vspltis_shifted (op) != 0")))))
 
-;; Return 1 if operand is constant zero (scalars and vectors).
-(define_predicate "zero_constant"
-  (and (match_code "const_int,const_double,const_wide_int,const_vector")
-       (match_test "op == CONST0_RTX (mode)")))
-
-;; Return 1 if operand is constant -1 (scalars and vectors).
-(define_predicate "all_ones_constant"
-  (and (match_code "const_int,const_double,const_wide_int,const_vector")
-       (match_test "op == CONSTM1_RTX (mode) && !FLOAT_MODE_P (mode)")))
-
 ;; Return 1 if operand is a vector int register or is either a vector constant
 ;; of all 0 bits of a vector constant of all 1 bits.
 (define_predicate "vector_int_reg_or_same_bit"
@@ -827,7 +831,7 @@
 (define_predicate "vsx_quad_dform_memory_operand"
   (match_code "mem")
 {
-  if (!TARGET_P9_DFORM_VECTOR || !MEM_P (op) || GET_MODE_SIZE (mode) != 16)
+  if (!TARGET_P9_VECTOR || !MEM_P (op) || GET_MODE_SIZE (mode) != 16)
     return false;
 
   return quad_address_p (XEXP (op, 0), mode, false);
@@ -1834,12 +1838,12 @@
 
   switch (mode)
     {
-    case QImode:
-    case HImode:
-    case SImode:
+    case E_QImode:
+    case E_HImode:
+    case E_SImode:
       break;
 
-    case DImode:
+    case E_DImode:
       if (!TARGET_POWERPC64)
 	return 0;
       break;
@@ -1894,20 +1898,20 @@
 
   switch (mode)
     {
-    case QImode:
-    case HImode:
-    case SImode:
+    case E_QImode:
+    case E_HImode:
+    case E_SImode:
       break;
 
     /* Do not fuse 64-bit DImode in 32-bit since it splits into two
        separate instructions.  */
-    case DImode:
+    case E_DImode:
       if (!TARGET_POWERPC64)
 	return 0;
       break;
 
     /* ISA 2.08/power8 only had fusion of GPR loads.  */
-    case SFmode:
+    case E_SFmode:
       if (!TARGET_P9_FUSION)
 	return 0;
       break;
@@ -1915,7 +1919,7 @@
     /* ISA 2.08/power8 only had fusion of GPR loads.  Do not allow 64-bit
        DFmode in 32-bit if -msoft-float since it splits into two separate
        instructions.  */
-    case DFmode:
+    case E_DFmode:
       if ((!TARGET_POWERPC64 && !TARGET_DF_FPR) || !TARGET_P9_FUSION)
 	return 0;
       break;
@@ -1959,15 +1963,15 @@
 
   switch (mode)
     {
-    case QImode:
-    case HImode:
-    case SImode:
-    case SFmode:
+    case E_QImode:
+    case E_HImode:
+    case E_SImode:
+    case E_SFmode:
       break;
 
     /* Do not fuse 64-bit DImode in 32-bit since it splits into two
        separate instructions.  */
-    case DImode:
+    case E_DImode:
       if (!TARGET_POWERPC64)
 	return 0;
       break;
@@ -1975,7 +1979,7 @@
     /* Do not allow 64-bit DFmode in 32-bit if -msoft-float since it splits
        into two separate instructions.  Do allow fusion if we have hardware
        floating point.  */
-    case DFmode:
+    case E_DFmode:
       if (!TARGET_POWERPC64 && !TARGET_DF_FPR)
 	return 0;
       break;

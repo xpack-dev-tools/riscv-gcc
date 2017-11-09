@@ -68,6 +68,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-outof-ssa.h"
 #include "cfgloop.h"
 #include "insn-attr.h" /* For INSN_SCHEDULING.  */
+#include "stringpool.h"
+#include "attribs.h"
 #include "asan.h"
 #include "tree-ssa-address.h"
 #include "output.h"
@@ -1389,10 +1391,18 @@ expand_one_ssa_partition (tree var)
     }
 
   machine_mode reg_mode = promote_ssa_mode (var, NULL);
-
   rtx x = gen_reg_rtx (reg_mode);
 
   set_rtl (var, x);
+
+  /* For a promoted variable, X will not be used directly but wrapped in a
+     SUBREG with SUBREG_PROMOTED_VAR_P set, which means that the RTL land
+     will assume that its upper bits can be inferred from its lower bits.
+     Therefore, if X isn't initialized on every path from the entry, then
+     we must do it manually in order to fulfill the above assumption.  */
+  if (reg_mode != TYPE_MODE (TREE_TYPE (var))
+      && bitmap_bit_p (SA.partitions_for_undefined_values, part))
+    emit_move_insn (x, CONST0_RTX (reg_mode));
 }
 
 /* Record the association between the RTL generated for partition PART
@@ -2023,7 +2033,7 @@ expand_used_vars (void)
   /* Compute the phase of the stack frame for this function.  */
   {
     int align = PREFERRED_STACK_BOUNDARY / BITS_PER_UNIT;
-    int off = STARTING_FRAME_OFFSET % align;
+    int off = targetm.starting_frame_offset () % align;
     frame_phase = off ? align - off : 0;
   }
 
@@ -2505,8 +2515,7 @@ expand_gimple_cond (basic_block bb, gcond *stmt)
   dest = false_edge->dest;
   redirect_edge_succ (false_edge, new_bb);
   false_edge->flags |= EDGE_FALLTHRU;
-  new_bb->count = false_edge->count;
-  new_bb->frequency = EDGE_FREQUENCY (false_edge);
+  new_bb->count = false_edge->count ();
   loop_p loop = find_common_loop (bb->loop_father, dest->loop_father);
   add_bb_to_loop (new_bb, loop);
   if (loop->latch == bb
@@ -2632,8 +2641,7 @@ expand_call_stmt (gcall *stmt)
   CALL_EXPR_RETURN_SLOT_OPT (exp) = gimple_call_return_slot_opt_p (stmt);
   if (decl
       && DECL_BUILT_IN_CLASS (decl) == BUILT_IN_NORMAL
-      && (DECL_FUNCTION_CODE (decl) == BUILT_IN_ALLOCA
-	  || DECL_FUNCTION_CODE (decl) == BUILT_IN_ALLOCA_WITH_ALIGN))
+      && ALLOCA_FUNCTION_CODE_P (DECL_FUNCTION_CODE (decl)))
     CALL_ALLOCA_FOR_VAR_P (exp) = gimple_call_alloca_for_var_p (stmt);
   else
     CALL_FROM_THUNK_P (exp) = gimple_call_from_thunk_p (stmt);
@@ -2657,11 +2665,27 @@ expand_call_stmt (gcall *stmt)
 	  }
     }
 
+  rtx_insn *before_call = get_last_insn ();
   lhs = gimple_call_lhs (stmt);
   if (lhs)
     expand_assignment (lhs, exp, false);
   else
     expand_expr (exp, const0_rtx, VOIDmode, EXPAND_NORMAL);
+
+  /* If the gimple call is an indirect call and has 'nocf_check'
+     attribute find a generated CALL insn to mark it as no
+     control-flow verification is needed.  */
+  if (gimple_call_nocf_check_p (stmt)
+      && !gimple_call_fndecl (stmt))
+    {
+      rtx_insn *last = get_last_insn ();
+      while (!CALL_P (last)
+	     && last != before_call)
+	last = PREV_INSN (last);
+
+      if (last != before_call)
+	add_reg_note (last, REG_CALL_NOCF_CHECK, const0_rtx);
+    }
 
   mark_transaction_restart_calls (stmt);
 }
@@ -3816,20 +3840,13 @@ expand_gimple_tailcall (basic_block bb, gcall *stmt, bool *can_fallthru)
      the exit block.  */
 
   probability = profile_probability::never ();
-  profile_count count = profile_count::zero ();
 
   for (ei = ei_start (bb->succs); (e = ei_safe_edge (ei)); )
     {
       if (!(e->flags & (EDGE_ABNORMAL | EDGE_EH)))
 	{
 	  if (e->dest != EXIT_BLOCK_PTR_FOR_FN (cfun))
-	    {
-	      e->dest->count -= e->count;
-	      e->dest->frequency -= EDGE_FREQUENCY (e);
-	      if (e->dest->frequency < 0)
-		e->dest->frequency = 0;
-	    }
-	  count += e->count;
+	    e->dest->count -= e->count ();
 	  probability += e->probability;
 	  remove_edge (e);
 	}
@@ -3859,7 +3876,6 @@ expand_gimple_tailcall (basic_block bb, gcall *stmt, bool *can_fallthru)
   e = make_edge (bb, EXIT_BLOCK_PTR_FOR_FN (cfun), EDGE_ABNORMAL
 		 | EDGE_SIBCALL);
   e->probability = probability;
-  e->count = count;
   BB_END (bb) = last;
   update_bb_for_insn (bb);
 
@@ -3960,15 +3976,13 @@ round_udiv_adjust (machine_mode mode, rtx mod, rtx op1)
    any rtl.  */
 
 static rtx
-convert_debug_memory_address (machine_mode mode, rtx x,
+convert_debug_memory_address (scalar_int_mode mode, rtx x,
 			      addr_space_t as)
 {
-  machine_mode xmode = GET_MODE (x);
-
 #ifndef POINTERS_EXTEND_UNSIGNED
   gcc_assert (mode == Pmode
 	      || mode == targetm.addr_space.address_mode (as));
-  gcc_assert (xmode == mode || xmode == VOIDmode);
+  gcc_assert (GET_MODE (x) == mode || GET_MODE (x) == VOIDmode);
 #else
   rtx temp;
 
@@ -3977,6 +3991,8 @@ convert_debug_memory_address (machine_mode mode, rtx x,
   if (GET_MODE (x) == mode || GET_MODE (x) == VOIDmode)
     return x;
 
+  /* X must have some form of address mode already.  */
+  scalar_int_mode xmode = as_a <scalar_int_mode> (GET_MODE (x));
   if (GET_MODE_PRECISION (mode) < GET_MODE_PRECISION (xmode))
     x = lowpart_subreg (mode, x, xmode);
   else if (POINTERS_EXTEND_UNSIGNED > 0)
@@ -4137,6 +4153,7 @@ expand_debug_expr (tree exp)
   machine_mode inner_mode = VOIDmode;
   int unsignedp = TYPE_UNSIGNED (TREE_TYPE (exp));
   addr_space_t as;
+  scalar_int_mode op0_mode, op1_mode, addr_mode;
 
   switch (TREE_CODE_CLASS (TREE_CODE (exp)))
     {
@@ -4186,16 +4203,10 @@ expand_debug_expr (tree exp)
 	case WIDEN_LSHIFT_EXPR:
 	  /* Ensure second operand isn't wider than the first one.  */
 	  inner_mode = TYPE_MODE (TREE_TYPE (TREE_OPERAND (exp, 1)));
-	  if (SCALAR_INT_MODE_P (inner_mode))
-	    {
-	      machine_mode opmode = mode;
-	      if (VECTOR_MODE_P (mode))
-		opmode = GET_MODE_INNER (mode);
-	      if (SCALAR_INT_MODE_P (opmode)
-		  && (GET_MODE_PRECISION (opmode)
-		      < GET_MODE_PRECISION (inner_mode)))
-		op1 = lowpart_subreg (opmode, op1, inner_mode);
-	    }
+	  if (is_a <scalar_int_mode> (inner_mode, &op1_mode)
+	      && (GET_MODE_UNIT_PRECISION (mode)
+		  < GET_MODE_PRECISION (op1_mode)))
+	    op1 = lowpart_subreg (GET_MODE_INNER (mode), op1, op1_mode);
 	  break;
 	default:
 	  break;
@@ -4329,9 +4340,11 @@ expand_debug_expr (tree exp)
 
 	if (FLOAT_MODE_P (mode) && FLOAT_MODE_P (inner_mode))
 	  {
-	    if (GET_MODE_BITSIZE (mode) == GET_MODE_BITSIZE (inner_mode))
+	    if (GET_MODE_UNIT_BITSIZE (mode)
+		== GET_MODE_UNIT_BITSIZE (inner_mode))
 	      op0 = simplify_gen_subreg (mode, op0, inner_mode, 0);
-	    else if (GET_MODE_BITSIZE (mode) < GET_MODE_BITSIZE (inner_mode))
+	    else if (GET_MODE_UNIT_BITSIZE (mode)
+		     < GET_MODE_UNIT_BITSIZE (inner_mode))
 	      op0 = simplify_gen_unary (FLOAT_TRUNCATE, mode, op0, inner_mode);
 	    else
 	      op0 = simplify_gen_unary (FLOAT_EXTEND, mode, op0, inner_mode);
@@ -4351,9 +4364,12 @@ expand_debug_expr (tree exp)
 	    else
 	      op0 = simplify_gen_unary (FIX, mode, op0, inner_mode);
 	  }
-	else if (CONSTANT_P (op0)
-		 || GET_MODE_PRECISION (mode) <= GET_MODE_PRECISION (inner_mode))
+	else if (GET_MODE_UNIT_PRECISION (mode)
+		 == GET_MODE_UNIT_PRECISION (inner_mode))
 	  op0 = lowpart_subreg (mode, op0, inner_mode);
+	else if (GET_MODE_UNIT_PRECISION (mode)
+		 < GET_MODE_UNIT_PRECISION (inner_mode))
+	  op0 = simplify_gen_unary (TRUNCATE, mode, op0, inner_mode);
 	else if (UNARY_CLASS_P (exp)
 		 ? TYPE_UNSIGNED (TREE_TYPE (TREE_OPERAND (exp, 0)))
 		 : unsignedp)
@@ -4495,7 +4511,7 @@ expand_debug_expr (tree exp)
 	  {
 	    if (mode1 == VOIDmode)
 	      /* Bitfield.  */
-	      mode1 = smallest_mode_for_size (bitsize, MODE_INT);
+	      mode1 = smallest_int_mode_for_size (bitsize);
 	    if (bitpos >= BITS_PER_UNIT)
 	      {
 		op0 = adjust_address_nv (op0, mode1, bitpos / BITS_PER_UNIT);
@@ -4584,23 +4600,23 @@ expand_debug_expr (tree exp)
 	 size_t, we need to check for mis-matched modes and correct
 	 the addend.  */
       if (op0 && op1
-	  && GET_MODE (op0) != VOIDmode && GET_MODE (op1) != VOIDmode
-	  && GET_MODE (op0) != GET_MODE (op1))
+	  && is_a <scalar_int_mode> (GET_MODE (op0), &op0_mode)
+	  && is_a <scalar_int_mode> (GET_MODE (op1), &op1_mode)
+	  && op0_mode != op1_mode)
 	{
-	  if (GET_MODE_BITSIZE (GET_MODE (op0)) < GET_MODE_BITSIZE (GET_MODE (op1))
-	      /* If OP0 is a partial mode, then we must truncate, even if it has
-		 the same bitsize as OP1 as GCC's representation of partial modes
-		 is opaque.  */
-	      || (GET_MODE_CLASS (GET_MODE (op0)) == MODE_PARTIAL_INT
-		  && GET_MODE_BITSIZE (GET_MODE (op0)) == GET_MODE_BITSIZE (GET_MODE (op1))))
-	    op1 = simplify_gen_unary (TRUNCATE, GET_MODE (op0), op1,
-				      GET_MODE (op1));
+	  if (GET_MODE_BITSIZE (op0_mode) < GET_MODE_BITSIZE (op1_mode)
+	      /* If OP0 is a partial mode, then we must truncate, even
+		 if it has the same bitsize as OP1 as GCC's
+		 representation of partial modes is opaque.  */
+	      || (GET_MODE_CLASS (op0_mode) == MODE_PARTIAL_INT
+		  && (GET_MODE_BITSIZE (op0_mode)
+		      == GET_MODE_BITSIZE (op1_mode))))
+	    op1 = simplify_gen_unary (TRUNCATE, op0_mode, op1, op1_mode);
 	  else
 	    /* We always sign-extend, regardless of the signedness of
 	       the operand, because the operand is always unsigned
 	       here even if the original C expression is signed.  */
-	    op1 = simplify_gen_unary (SIGN_EXTEND, GET_MODE (op0), op1,
-				      GET_MODE (op1));
+	    op1 = simplify_gen_unary (SIGN_EXTEND, op0_mode, op1, op1_mode);
 	}
       /* Fall through.  */
     case PLUS_EXPR:
@@ -4826,7 +4842,7 @@ expand_debug_expr (tree exp)
 						   GET_MODE_INNER (mode)));
       else
 	{
-	  machine_mode imode = GET_MODE_INNER (mode);
+	  scalar_mode imode = GET_MODE_INNER (mode);
 	  rtx re, im;
 
 	  if (MEM_P (op0))
@@ -4836,10 +4852,11 @@ expand_debug_expr (tree exp)
 	    }
 	  else
 	    {
-	      machine_mode ifmode = int_mode_for_mode (mode);
-	      machine_mode ihmode = int_mode_for_mode (imode);
+	      scalar_int_mode ifmode;
+	      scalar_int_mode ihmode;
 	      rtx halfsize;
-	      if (ifmode == BLKmode || ihmode == BLKmode)
+	      if (!int_mode_for_mode (mode).exists (&ifmode)
+		  || !int_mode_for_mode (imode).exists (&ihmode))
 		return NULL;
 	      halfsize = GEN_INT (GET_MODE_BITSIZE (ihmode));
 	      re = op0;
@@ -4916,18 +4933,19 @@ expand_debug_expr (tree exp)
 	}
 
       as = TYPE_ADDR_SPACE (TREE_TYPE (TREE_TYPE (exp)));
-      op0 = convert_debug_memory_address (mode, XEXP (op0, 0), as);
+      addr_mode = SCALAR_INT_TYPE_MODE (TREE_TYPE (exp));
+      op0 = convert_debug_memory_address (addr_mode, XEXP (op0, 0), as);
 
       return op0;
 
     case VECTOR_CST:
       {
-	unsigned i;
+	unsigned i, nelts;
 
-	op0 = gen_rtx_CONCATN
-	  (mode, rtvec_alloc (TYPE_VECTOR_SUBPARTS (TREE_TYPE (exp))));
+	nelts = VECTOR_CST_NELTS (exp);
+	op0 = gen_rtx_CONCATN (mode, rtvec_alloc (nelts));
 
-	for (i = 0; i < VECTOR_CST_NELTS (exp); ++i)
+	for (i = 0; i < nelts; ++i)
 	  {
 	    op1 = expand_debug_expr (VECTOR_CST_ELT (exp, i));
 	    if (!op1)
@@ -5192,9 +5210,11 @@ expand_debug_source_expr (tree exp)
 
   if (FLOAT_MODE_P (mode) && FLOAT_MODE_P (inner_mode))
     {
-      if (GET_MODE_BITSIZE (mode) == GET_MODE_BITSIZE (inner_mode))
+      if (GET_MODE_UNIT_BITSIZE (mode)
+	  == GET_MODE_UNIT_BITSIZE (inner_mode))
 	op0 = simplify_gen_subreg (mode, op0, inner_mode, 0);
-      else if (GET_MODE_BITSIZE (mode) < GET_MODE_BITSIZE (inner_mode))
+      else if (GET_MODE_UNIT_BITSIZE (mode)
+	       < GET_MODE_UNIT_BITSIZE (inner_mode))
 	op0 = simplify_gen_unary (FLOAT_TRUNCATE, mode, op0, inner_mode);
       else
 	op0 = simplify_gen_unary (FLOAT_EXTEND, mode, op0, inner_mode);
@@ -5208,9 +5228,12 @@ expand_debug_source_expr (tree exp)
       else
 	op0 = simplify_gen_unary (FIX, mode, op0, inner_mode);
     }
-  else if (CONSTANT_P (op0)
-	   || GET_MODE_BITSIZE (mode) <= GET_MODE_BITSIZE (inner_mode))
+  else if (GET_MODE_UNIT_PRECISION (mode)
+	   == GET_MODE_UNIT_PRECISION (inner_mode))
     op0 = lowpart_subreg (mode, op0, inner_mode);
+  else if (GET_MODE_UNIT_PRECISION (mode)
+	   < GET_MODE_UNIT_PRECISION (inner_mode))
+    op0 = simplify_gen_unary (TRUNCATE, mode, op0, inner_mode);
   else if (TYPE_UNSIGNED (TREE_TYPE (exp)))
     op0 = simplify_gen_unary (ZERO_EXTEND, mode, op0, inner_mode);
   else
@@ -5832,7 +5855,6 @@ construct_init_block (void)
   init_block = create_basic_block (NEXT_INSN (get_insns ()),
 				   get_last_insn (),
 				   ENTRY_BLOCK_PTR_FOR_FN (cfun));
-  init_block->frequency = ENTRY_BLOCK_PTR_FOR_FN (cfun)->frequency;
   init_block->count = ENTRY_BLOCK_PTR_FOR_FN (cfun)->count;
   add_bb_to_loop (init_block, ENTRY_BLOCK_PTR_FOR_FN (cfun)->loop_father);
   if (e)
@@ -5896,7 +5918,7 @@ construct_exit_block (void)
   while (NEXT_INSN (head) && NOTE_P (NEXT_INSN (head)))
     head = NEXT_INSN (head);
   /* But make sure exit_block starts with RETURN_LABEL, otherwise the
-     bb frequency counting will be confused.  Any instructions before that
+     bb count counting will be confused.  Any instructions before that
      label are emitted for the case where PREV_BB falls through into the
      exit block, so append those instructions to prev_bb in that case.  */
   if (NEXT_INSN (head) != return_label)
@@ -5909,7 +5931,6 @@ construct_exit_block (void)
 	}
     }
   exit_block = create_basic_block (NEXT_INSN (head), end, prev_bb);
-  exit_block->frequency = EXIT_BLOCK_PTR_FOR_FN (cfun)->frequency;
   exit_block->count = EXIT_BLOCK_PTR_FOR_FN (cfun)->count;
   add_bb_to_loop (exit_block, EXIT_BLOCK_PTR_FOR_FN (cfun)->loop_father);
 
@@ -5928,12 +5949,8 @@ construct_exit_block (void)
   FOR_EACH_EDGE (e2, ei, EXIT_BLOCK_PTR_FOR_FN (cfun)->preds)
     if (e2 != e)
       {
-	e->count -= e2->count;
-	exit_block->count -= e2->count;
-	exit_block->frequency -= EDGE_FREQUENCY (e2);
+	exit_block->count -= e2->count ();
       }
-  if (exit_block->frequency < 0)
-    exit_block->frequency = 0;
   update_bb_for_insn (exit_block);
 }
 
@@ -6080,7 +6097,7 @@ expand_main_function (void)
      || (!defined(HAS_INIT_SECTION)			\
 	 && !defined(INIT_SECTION_ASM_OP)		\
 	 && !defined(INIT_ARRAY_SECTION_ASM_OP)))
-  emit_library_call (init_one_libfunc (NAME__MAIN), LCT_NORMAL, VOIDmode, 0);
+  emit_library_call (init_one_libfunc (NAME__MAIN), LCT_NORMAL, VOIDmode);
 #endif
 }
 
@@ -6526,12 +6543,6 @@ pass_expand::execute (function *fun)
 	if (TREE_CODE (parent) == FUNCTION_DECL)
 	  TREE_SYMBOL_REFERENCED (DECL_ASSEMBLER_NAME (parent)) = 1;
     }
-
-  /* We are now committed to emitting code for this function.  Do any
-     preparation, such as emitting abstract debug info for the inline
-     before it gets mangled by optimization.  */
-  if (cgraph_function_possibly_inlined_p (current_function_decl))
-    (*debug_hooks->outlining_inline_function) (current_function_decl);
 
   TREE_ASM_WRITTEN (current_function_decl) = 1;
 

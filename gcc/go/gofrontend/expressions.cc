@@ -144,8 +144,8 @@ Expression::convert_for_assignment(Gogo*, Type* lhs_type,
       || rhs->is_error_expression())
     return Expression::make_error(location);
 
-  if (lhs_type->forwarded() != rhs_type->forwarded()
-      && lhs_type->interface_type() != NULL)
+  bool are_identical = Type::are_identical(lhs_type, rhs_type, false, NULL);
+  if (!are_identical && lhs_type->interface_type() != NULL)
     {
       if (rhs_type->interface_type() == NULL)
         return Expression::convert_type_to_interface(lhs_type, rhs, location);
@@ -153,8 +153,7 @@ Expression::convert_for_assignment(Gogo*, Type* lhs_type,
         return Expression::convert_interface_to_interface(lhs_type, rhs, false,
                                                           location);
     }
-  else if (lhs_type->forwarded() != rhs_type->forwarded()
-	   && rhs_type->interface_type() != NULL)
+  else if (!are_identical && rhs_type->interface_type() != NULL)
     return Expression::convert_interface_to_type(lhs_type, rhs, location);
   else if (lhs_type->is_slice_type() && rhs_type->is_nil_type())
     {
@@ -165,8 +164,15 @@ Expression::convert_for_assignment(Gogo*, Type* lhs_type,
     }
   else if (rhs_type->is_nil_type())
     return Expression::make_nil(location);
-  else if (Type::are_identical(lhs_type, rhs_type, false, NULL))
+  else if (are_identical)
     {
+      if (lhs_type->forwarded() != rhs_type->forwarded())
+	{
+	  // Different but identical types require an explicit
+	  // conversion.  This happens with type aliases.
+	  return Expression::make_cast(lhs_type, rhs, location);
+	}
+
       // No conversion is needed.
       return rhs;
     }
@@ -210,7 +216,11 @@ Expression::convert_type_to_interface(Type* lhs_type, Expression* rhs,
     }
 
   // This should have been checked already.
-  go_assert(lhs_interface_type->implements_interface(rhs_type, NULL));
+  if (!lhs_interface_type->implements_interface(rhs_type, NULL))
+    {
+      go_assert(saw_errors());
+      return Expression::make_error(location);
+    }
 
   // An interface is a tuple.  If LHS_TYPE is an empty interface type,
   // then the first field is the type descriptor for RHS_TYPE.
@@ -1295,28 +1305,12 @@ Func_descriptor_expression::do_get_backend(Translate_context* context)
     return context->backend()->var_expression(this->dvar_, VE_rvalue, loc);
 
   Gogo* gogo = context->gogo();
-  std::string var_name;
+  std::string var_name(gogo->function_descriptor_name(no));
   bool is_descriptor = false;
   if (no->is_function_declaration()
       && !no->func_declaration_value()->asm_name().empty()
       && Linemap::is_predeclared_location(no->location()))
-    {
-      if (no->func_declaration_value()->asm_name().substr(0, 8) != "runtime.")
-	var_name = no->func_declaration_value()->asm_name() + "_descriptor";
-      else
-	var_name = no->func_declaration_value()->asm_name() + "$descriptor";
-      is_descriptor = true;
-    }
-  else
-    {
-      if (no->package() == NULL)
-	var_name = gogo->pkgpath_symbol();
-      else
-	var_name = no->package()->pkgpath_symbol();
-      var_name.push_back('.');
-      var_name.append(Gogo::unpack_hidden_name(no->name()));
-      var_name.append("$descriptor");
-    }
+    is_descriptor = true;
 
   Btype* btype = this->type()->get_backend(gogo);
 
@@ -4344,27 +4338,23 @@ Unary_expression::do_get_backend(Translate_context* context)
 	    }
 	}
 
-      static unsigned int counter;
-      char buf[100];
       if (this->is_gc_root_ || this->is_slice_init_)
 	{
+	  std::string var_name;
 	  bool copy_to_heap = false;
 	  if (this->is_gc_root_)
 	    {
 	      // Build a decl for a GC root variable.  GC roots are mutable, so
 	      // they cannot be represented as an immutable_struct in the
 	      // backend.
-	      static unsigned int root_counter;
-	      snprintf(buf, sizeof buf, "gc%u", root_counter);
-	      ++root_counter;
+	      var_name = gogo->gc_root_name();
 	    }
 	  else
 	    {
 	      // Build a decl for a slice value initializer.  An immutable slice
 	      // value initializer may have to be copied to the heap if it
 	      // contains pointers in a non-constant context.
-	      snprintf(buf, sizeof buf, "C%u", counter);
-	      ++counter;
+	      var_name = gogo->initializer_name();
 
 	      Array_type* at = this->expr_->type()->array_type();
 	      go_assert(at != NULL);
@@ -4375,12 +4365,12 @@ Unary_expression::do_get_backend(Translate_context* context)
 	      // read-only, because the program is permitted to change it.
 	      copy_to_heap = context->function() != NULL;
 	    }
-          std::string asm_name(go_selectively_encode_id(buf));
+	  std::string asm_name(go_selectively_encode_id(var_name));
 	  Bvariable* implicit =
-              gogo->backend()->implicit_variable(buf, asm_name,
+              gogo->backend()->implicit_variable(var_name, asm_name,
                                                  btype, true, copy_to_heap,
                                                  false, 0);
-	  gogo->backend()->implicit_variable_set_init(implicit, buf, btype,
+	  gogo->backend()->implicit_variable_set_init(implicit, var_name, btype,
 						      true, copy_to_heap, false,
 						      bexpr);
 	  bexpr = gogo->backend()->var_expression(implicit, VE_rvalue, loc);
@@ -4403,16 +4393,13 @@ Unary_expression::do_get_backend(Translate_context* context)
 		|| this->expr_->string_expression() != NULL)
 	       && this->expr_->is_static_initializer())
         {
-	  // Build a decl for a constant constructor.
-          snprintf(buf, sizeof buf, "C%u", counter);
-          ++counter;
-
-          std::string asm_name(go_selectively_encode_id(buf));
+	  std::string var_name(gogo->initializer_name());
+	  std::string asm_name(go_selectively_encode_id(var_name));
           Bvariable* decl =
-              gogo->backend()->immutable_struct(buf, asm_name,
+              gogo->backend()->immutable_struct(var_name, asm_name,
                                                 true, false, btype, loc);
-          gogo->backend()->immutable_struct_set_init(decl, buf, true, false,
-                                                     btype, loc, bexpr);
+          gogo->backend()->immutable_struct_set_init(decl, var_name, true,
+						     false, btype, loc, bexpr);
           bexpr = gogo->backend()->var_expression(decl, VE_rvalue, loc);
         }
 
@@ -5655,7 +5642,7 @@ Binary_expression::do_determine_type(const Type_context* context)
 
   Type_context subcontext(*context);
 
-  if (is_constant_expr)
+  if (is_constant_expr && !is_shift_op)
     {
       subcontext.type = NULL;
       subcontext.may_be_abstract = true;
@@ -6044,35 +6031,46 @@ Binary_expression::do_get_backend(Translate_context* context)
     {
       go_assert(left_type->integer_type() != NULL);
 
-      mpz_t bitsval;
       int bits = left_type->integer_type()->bits();
-      mpz_init_set_ui(bitsval, bits);
-      Bexpression* bits_expr =
-          gogo->backend()->integer_constant_expression(right_btype, bitsval);
-      Bexpression* compare =
-          gogo->backend()->binary_expression(OPERATOR_LT,
-                                             right, bits_expr, loc);
 
-      Bexpression* zero_expr =
-          gogo->backend()->integer_constant_expression(left_btype, zero);
-      overflow = zero_expr;
-      Bfunction* bfn = context->function()->func_value()->get_decl();
-      if (this->op_ == OPERATOR_RSHIFT
-	  && !left_type->integer_type()->is_unsigned())
+      Numeric_constant nc;
+      unsigned long ul;
+      if (!this->right_->numeric_constant_value(&nc)
+	  || nc.to_unsigned_long(&ul) != Numeric_constant::NC_UL_VALID
+	  || ul >= static_cast<unsigned long>(bits))
 	{
-          Bexpression* neg_expr =
-              gogo->backend()->binary_expression(OPERATOR_LT, left,
-                                                 zero_expr, loc);
-          Bexpression* neg_one_expr =
-              gogo->backend()->integer_constant_expression(left_btype, neg_one);
-          overflow = gogo->backend()->conditional_expression(bfn,
-                                                             btype, neg_expr,
-                                                             neg_one_expr,
-                                                             zero_expr, loc);
+	  mpz_t bitsval;
+	  mpz_init_set_ui(bitsval, bits);
+	  Bexpression* bits_expr =
+	    gogo->backend()->integer_constant_expression(right_btype, bitsval);
+	  Bexpression* compare =
+	    gogo->backend()->binary_expression(OPERATOR_LT,
+					       right, bits_expr, loc);
+
+	  Bexpression* zero_expr =
+	    gogo->backend()->integer_constant_expression(left_btype, zero);
+	  overflow = zero_expr;
+	  Bfunction* bfn = context->function()->func_value()->get_decl();
+	  if (this->op_ == OPERATOR_RSHIFT
+	      && !left_type->integer_type()->is_unsigned())
+	    {
+	      Bexpression* neg_expr =
+		gogo->backend()->binary_expression(OPERATOR_LT, left,
+						   zero_expr, loc);
+	      Bexpression* neg_one_expr =
+		gogo->backend()->integer_constant_expression(left_btype,
+							     neg_one);
+	      overflow = gogo->backend()->conditional_expression(bfn,
+								 btype,
+								 neg_expr,
+								 neg_one_expr,
+								 zero_expr,
+								 loc);
+	    }
+	  ret = gogo->backend()->conditional_expression(bfn, btype, compare,
+							ret, overflow, loc);
+	  mpz_clear(bitsval);
 	}
-      ret = gogo->backend()->conditional_expression(bfn, btype, compare, ret,
-                                                    overflow, loc);
-      mpz_clear(bitsval);
     }
 
   // Add checks for division by zero and division overflow as needed.
@@ -14448,15 +14446,14 @@ Receive_expression::do_get_backend(Translate_context* context)
       go_assert(this->channel_->type()->is_error());
       return context->backend()->error_expression();
     }
-  Expression* td = Expression::make_type_descriptor(channel_type, loc);
 
   Expression* recv_ref =
     Expression::make_temporary_reference(this->temp_receiver_, loc);
   Expression* recv_addr =
     Expression::make_temporary_reference(this->temp_receiver_, loc);
   recv_addr = Expression::make_unary(OPERATOR_AND, recv_addr, loc);
-  Expression* recv = Runtime::make_call(Runtime::CHANRECV1, loc, 3,
-					td, this->channel_, recv_addr);
+  Expression* recv = Runtime::make_call(Runtime::CHANRECV1, loc, 2,
+					this->channel_, recv_addr);
   return Expression::make_compound(recv, recv_ref, loc)->get_backend(context);
 }
 
@@ -15389,10 +15386,9 @@ Interface_mtable_expression::do_get_backend(Translate_context* context)
   const Typed_identifier_list* interface_methods = this->itype_->methods();
   go_assert(!interface_methods->empty());
 
-  std::string mangled_name = ((this->is_pointer_ ? "__go_pimt__" : "__go_imt_")
-			      + this->itype_->mangled_name(gogo)
-			      + "__"
-			      + this->type_->mangled_name(gogo));
+  std::string mangled_name =
+    gogo->interface_method_table_name(this->itype_, this->type_,
+				      this->is_pointer_);
 
   // Set is_public if we are converting a named type to an interface
   // type that is defined in the same package as the named type, and

@@ -131,18 +131,17 @@ valid_ao_ref_for_dse (ao_ref *ref)
 	  && ref->max_size != -1
 	  && ref->size != 0
 	  && ref->max_size == ref->size
+	  && ref->offset >= 0
 	  && (ref->offset % BITS_PER_UNIT) == 0
 	  && (ref->size % BITS_PER_UNIT) == 0
 	  && (ref->size != -1));
 }
 
-/* Normalize COPY (an ao_ref) relative to REF.  Essentially when we are
-   done COPY will only refer bytes found within REF.
+/* Try to normalize COPY (an ao_ref) relative to REF.  Essentially when we are
+   done COPY will only refer bytes found within REF.  Return true if COPY
+   is known to intersect at least one byte of REF.  */
 
-   We have already verified that COPY intersects at least one
-   byte with REF.  */
-
-static void
+static bool
 normalize_ref (ao_ref *copy, ao_ref *ref)
 {
   /* If COPY starts before REF, then reset the beginning of
@@ -150,13 +149,22 @@ normalize_ref (ao_ref *copy, ao_ref *ref)
      number of bytes removed from COPY.  */
   if (copy->offset < ref->offset)
     {
-      copy->size -= (ref->offset - copy->offset);
+      HOST_WIDE_INT diff = ref->offset - copy->offset;
+      if (copy->size <= diff)
+	return false;
+      copy->size -= diff;
       copy->offset = ref->offset;
     }
 
+  HOST_WIDE_INT diff = copy->offset - ref->offset;
+  if (ref->size <= diff)
+    return false;
+
   /* If COPY extends beyond REF, chop off its size appropriately.  */
-  if (copy->offset + copy->size > ref->offset + ref->size)
-    copy->size -= (copy->offset + copy->size - (ref->offset + ref->size));
+  HOST_WIDE_INT limit = ref->size - diff;
+  if (copy->size > limit)
+    copy->size = limit;
+  return true;
 }
 
 /* Clear any bytes written by STMT from the bitmap LIVE_BYTES.  The base
@@ -178,14 +186,10 @@ clear_bytes_written_by (sbitmap live_bytes, gimple *stmt, ao_ref *ref)
   if (valid_ao_ref_for_dse (&write)
       && operand_equal_p (write.base, ref->base, OEP_ADDRESS_OF)
       && write.size == write.max_size
-      && ((write.offset < ref->offset
-	   && write.offset + write.size > ref->offset)
-	  || (write.offset >= ref->offset
-	      && write.offset < ref->offset + ref->size)))
+      && normalize_ref (&write, ref))
     {
-      normalize_ref (&write, ref);
-      bitmap_clear_range (live_bytes,
-			  (write.offset - ref->offset) / BITS_PER_UNIT,
+      HOST_WIDE_INT start = write.offset - ref->offset;
+      bitmap_clear_range (live_bytes, start / BITS_PER_UNIT,
 			  write.size / BITS_PER_UNIT);
     }
 }
@@ -468,6 +472,35 @@ maybe_trim_partially_dead_store (ao_ref *ref, sbitmap live, gimple *stmt)
     }
 }
 
+/* Return TRUE if USE_REF reads bytes from LIVE where live is
+   derived from REF, a write reference.
+
+   While this routine may modify USE_REF, it's passed by value, not
+   location.  So callers do not see those modifications.  */
+
+static bool
+live_bytes_read (ao_ref use_ref, ao_ref *ref, sbitmap live)
+{
+  /* We have already verified that USE_REF and REF hit the same object.
+     Now verify that there's actually an overlap between USE_REF and REF.  */
+  if (normalize_ref (&use_ref, ref))
+    {
+      HOST_WIDE_INT start = use_ref.offset - ref->offset;
+      HOST_WIDE_INT size = use_ref.size;
+
+      /* If USE_REF covers all of REF, then it will hit one or more
+	 live bytes.   This avoids useless iteration over the bitmap
+	 below.  */
+      if (start == 0 && size == ref->size)
+	return true;
+
+      /* Now check if any of the remaining bits in use_ref are set in LIVE.  */
+      return bitmap_bit_in_range_p (live, start / BITS_PER_UNIT,
+				    (start + size - 1) / BITS_PER_UNIT);
+    }
+  return true;
+}
+
 /* A helper of dse_optimize_stmt.
    Given a GIMPLE_ASSIGN in STMT that writes to REF, find a candidate
    statement *USE_STMT that may prove STMT to be dead.
@@ -547,6 +580,31 @@ dse_classify_store (ao_ref *ref, gimple *stmt, gimple **use_stmt,
 	  /* If the statement is a use the store is not dead.  */
 	  else if (ref_maybe_used_by_stmt_p (use_stmt, ref))
 	    {
+	      /* Handle common cases where we can easily build an ao_ref
+		 structure for USE_STMT and in doing so we find that the
+		 references hit non-live bytes and thus can be ignored.  */
+	      if (byte_tracking_enabled && (!gimple_vdef (use_stmt) || !temp))
+		{
+		  if (is_gimple_assign (use_stmt))
+		    {
+		      /* Other cases were noted as non-aliasing by
+			 the call to ref_maybe_used_by_stmt_p.  */
+		      ao_ref use_ref;
+		      ao_ref_init (&use_ref, gimple_assign_rhs1 (use_stmt));
+		      if (valid_ao_ref_for_dse (&use_ref)
+			  && use_ref.base == ref->base
+			  && use_ref.size == use_ref.max_size
+			  && !live_bytes_read (use_ref, ref, live_bytes))
+			{
+			  /* If this statement has a VDEF, then it is the
+			     first store we have seen, so walk through it.  */
+			  if (gimple_vdef (use_stmt))
+			    temp = use_stmt;
+			  continue;
+			}
+		    }
+		}
+
 	      fail = true;
 	      BREAK_FROM_IMM_USE_STMT (ui);
 	    }

@@ -28,6 +28,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm_p.h"
 #include "diagnostic.h"
 #include "intl.h"
+#include "stringpool.h"
+#include "attribs.h"
 #include "asan.h"
 #include "gcc-rich-location.h"
 #include "gimplify.h"
@@ -319,6 +321,69 @@ find_array_ref_with_const_idx_r (tree *expr_p, int *, void *)
   return NULL_TREE;
 }
 
+/* Subroutine of warn_tautological_cmp.  Warn about bitwise comparison
+   that always evaluate to true or false.  LOC is the location of the
+   ==/!= comparison specified by CODE; LHS and RHS are the usual operands
+   of this comparison.  */
+
+static void
+warn_tautological_bitwise_comparison (location_t loc, tree_code code,
+				      tree lhs, tree rhs)
+{
+  if (code != EQ_EXPR && code != NE_EXPR)
+    return;
+
+  /* Extract the operands from e.g. (x & 8) == 4.  */
+  tree bitop;
+  tree cst;
+  if ((TREE_CODE (lhs) == BIT_AND_EXPR
+       || TREE_CODE (lhs) == BIT_IOR_EXPR)
+      && TREE_CODE (rhs) == INTEGER_CST)
+    bitop = lhs, cst = rhs;
+  else if ((TREE_CODE (rhs) == BIT_AND_EXPR
+	    || TREE_CODE (rhs) == BIT_IOR_EXPR)
+	   && TREE_CODE (lhs) == INTEGER_CST)
+    bitop = rhs, cst = lhs;
+  else
+    return;
+
+  tree bitopcst;
+  if (TREE_CODE (TREE_OPERAND (bitop, 0)) == INTEGER_CST)
+    bitopcst = TREE_OPERAND (bitop, 0);
+  else if (TREE_CODE (TREE_OPERAND (bitop, 1)) == INTEGER_CST)
+    bitopcst = TREE_OPERAND (bitop, 1);
+  else
+    return;
+
+  /* Note that the two operands are from before the usual integer
+     conversions, so their types might not be the same.
+     Use the larger of the two precisions and ignore bits outside
+     of that.  */
+  int prec = MAX (TYPE_PRECISION (TREE_TYPE (cst)),
+		  TYPE_PRECISION (TREE_TYPE (bitopcst)));
+
+  wide_int bitopcstw = wi::to_wide (bitopcst, prec);
+  wide_int cstw = wi::to_wide (cst, prec);
+
+  wide_int res;
+  if (TREE_CODE (bitop) == BIT_AND_EXPR)
+    res = bitopcstw & cstw;
+  else
+    res = bitopcstw | cstw;
+
+  /* For BIT_AND only warn if (CST2 & CST1) != CST1, and
+     for BIT_OR only if (CST2 | CST1) != CST1.  */
+  if (res == cstw)
+    return;
+
+  if (code == EQ_EXPR)
+    warning_at (loc, OPT_Wtautological_compare,
+		"bitwise comparison always evaluates to false");
+  else
+    warning_at (loc, OPT_Wtautological_compare,
+		"bitwise comparison always evaluates to true");
+}
+
 /* Warn if a self-comparison always evaluates to true or false.  LOC
    is the location of the comparison with code CODE, LHS and RHS are
    operands of the comparison.  */
@@ -334,6 +399,8 @@ warn_tautological_cmp (location_t loc, enum tree_code code, tree lhs, tree rhs)
       || from_macro_expansion_at (EXPR_LOCATION (lhs))
       || from_macro_expansion_at (EXPR_LOCATION (rhs)))
     return;
+
+  warn_tautological_bitwise_comparison (loc, code, lhs, rhs);
 
   /* We do not warn for constants because they are typical of macro
      expansions that test for features, sizeof, and similar.  */
@@ -429,8 +496,8 @@ warn_logical_not_parentheses (location_t location, enum tree_code code,
       rich_location richloc (line_table, lhs_loc);
       richloc.add_fixit_insert_before (lhs_loc, "(");
       richloc.add_fixit_insert_after (lhs_loc, ")");
-      inform_at_rich_loc (&richloc, "add parentheses around left hand side "
-			  "expression to silence this warning");
+      inform (&richloc, "add parentheses around left hand side "
+	      "expression to silence this warning");
     }
 }
 
@@ -1148,12 +1215,12 @@ warnings_for_convert_and_check (location_t loc, tree type, tree expr,
       if (cst)
 	warning_at (loc, OPT_Woverflow,
 		    "overflow in conversion from %qT to %qT "
-		    "chages value from %qE to %qE",
+		    "changes value from %qE to %qE",
 		    exprtype, type, expr, result);
       else
 	warning_at (loc, OPT_Woverflow,
 		    "overflow in conversion from %qT to %qT "
-		    "chages the value of %qE",
+		    "changes the value of %qE",
 		    exprtype, type, expr);
     }
   else
@@ -1173,11 +1240,11 @@ match_case_to_enum_1 (tree key, tree type, tree label)
   char buf[WIDE_INT_PRINT_BUFFER_SIZE];
 
   if (tree_fits_uhwi_p (key))
-    print_dec (key, buf, UNSIGNED);
+    print_dec (wi::to_wide (key), buf, UNSIGNED);
   else if (tree_fits_shwi_p (key))
-    print_dec (key, buf, SIGNED);
+    print_dec (wi::to_wide (key), buf, SIGNED);
   else
-    print_hex (key, buf);
+    print_hex (wi::to_wide (key), buf);
 
   if (TYPE_NAME (type) == NULL_TREE)
     warning_at (DECL_SOURCE_LOCATION (CASE_LABEL (label)),
@@ -1279,8 +1346,8 @@ c_do_switch_warnings (splay_tree cases, location_t switch_location,
       /* If there's a case value > 1 or < 0, that is outside bool
 	 range, warn.  */
       if (outside_range_p
-	  || (max && wi::gts_p (max, 1))
-	  || (min && wi::lts_p (min, 0))
+	  || (max && wi::gts_p (wi::to_wide (max), 1))
+	  || (min && wi::lts_p (wi::to_wide (min), 0))
 	  /* And handle the
 	     switch (boolean)
 	       {
@@ -1290,8 +1357,8 @@ c_do_switch_warnings (splay_tree cases, location_t switch_location,
 	       }
 	     case, where we want to warn.  */
 	  || (default_node
-	      && max && wi::eq_p (max, 1)
-	      && min && wi::eq_p (min, 0)))
+	      && max && wi::to_wide (max) == 1
+	      && min && wi::to_wide (min) == 0))
 	warning_at (switch_location, OPT_Wswitch_bool,
 		    "switch condition has boolean value");
     }
@@ -2196,7 +2263,7 @@ maybe_warn_shift_overflow (location_t loc, tree op0, tree op1)
   if (TYPE_UNSIGNED (type0))
     return false;
 
-  unsigned int min_prec = (wi::min_precision (op0, SIGNED)
+  unsigned int min_prec = (wi::min_precision (wi::to_wide (op0), SIGNED)
 			   + TREE_INT_CST_LOW (op1));
   /* Handle the case of left-shifting 1 into the sign bit.
    * However, shifting 1 _out_ of the sign bit, as in
@@ -2324,13 +2391,13 @@ warn_for_restrict (unsigned param_pos, tree *argarray, unsigned nargs)
 	richloc.add_range (EXPR_LOCATION (arg), false);
     }
 
-  warning_at_rich_loc_n (&richloc, OPT_Wrestrict, arg_positions.length (),
-			 "passing argument %i to restrict-qualified parameter"
-			 " aliases with argument %Z",
-			 "passing argument %i to restrict-qualified parameter"
-			 " aliases with arguments %Z",
-			 param_pos + 1, arg_positions.address (),
-			 arg_positions.length ());
+  warning_n (&richloc, OPT_Wrestrict, arg_positions.length (),
+	     "passing argument %i to restrict-qualified parameter"
+	     " aliases with argument %Z",
+	     "passing argument %i to restrict-qualified parameter"
+	     " aliases with arguments %Z",
+	     param_pos + 1, arg_positions.address (),
+	     arg_positions.length ());
 }
 
 /* Callback function to determine whether an expression TP or one of its
@@ -2457,33 +2524,43 @@ warn_for_multistatement_macros (location_t body_loc, location_t next_loc,
       || body_loc_exp == next_loc_exp)
     return;
 
-  /* Find the macro map for the macro expansion BODY_LOC.  */
-  const line_map *map = linemap_lookup (line_table, body_loc);
-  const line_map_macro *macro_map = linemap_check_macro (map);
+  /* Find the macro maps for the macro expansions.  */
+  const line_map *body_map = linemap_lookup (line_table, body_loc);
+  const line_map *next_map = linemap_lookup (line_table, next_loc);
+  const line_map *guard_map = linemap_lookup (line_table, guard_loc);
 
-  /* Now see if the following token is coming from the same macro
-     expansion.  If it is, it's a problem, because it should've been
-     parsed at this point.  We only look at odd-numbered indexes
-     within the MACRO_MAP_LOCATIONS array, i.e. the spelling locations
-     of the tokens.  */
-  bool found_guard = false;
-  bool found_next = false;
-  for (unsigned int i = 1;
-       i < 2 * MACRO_MAP_NUM_MACRO_TOKENS (macro_map);
-       i += 2)
-    {
-      if (MACRO_MAP_LOCATIONS (macro_map)[i] == next_loc_exp)
-	found_next = true;
-      if (MACRO_MAP_LOCATIONS (macro_map)[i] == guard_loc_exp)
-	found_guard = true;
-    }
+  /* Now see if the following token (after the body) is coming from the
+     same macro expansion.  If it is, it might be a problem.  */
+  if (body_map != next_map)
+    return;
 
   /* The conditional itself must not come from the same expansion, because
      we don't want to warn about
      #define IF if (x) x++; y++
      and similar.  */
-  if (!found_next || found_guard)
+  if (guard_map == body_map)
     return;
+
+  /* Handle the case where NEXT and BODY come from the same expansion while
+     GUARD doesn't, yet we shouldn't warn.  E.g.
+
+       #define GUARD if (...)
+       #define GUARD2 GUARD
+
+     and in the definition of another macro:
+
+       GUARD2
+	foo ();
+       return 1;
+   */
+  while (linemap_macro_expansion_map_p (guard_map))
+    {
+      const line_map_macro *mm = linemap_check_macro (guard_map);
+      guard_loc_exp = MACRO_MAP_EXPANSION_POINT_LOCATION (mm);
+      guard_map = linemap_lookup (line_table, guard_loc_exp);
+      if (guard_map == body_map)
+	return;
+    }
 
   if (warning_at (body_loc, OPT_Wmultistatement_macros,
 		  "macro expands to multiple statements"))

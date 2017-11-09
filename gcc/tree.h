@@ -76,64 +76,43 @@ as_internal_fn (combined_fn code)
 
 /* Macros for initializing `tree_contains_struct'.  */
 #define MARK_TS_BASE(C)					\
-  do {							\
-    tree_contains_struct[C][TS_BASE] = 1;		\
-  } while (0)
+  (tree_contains_struct[C][TS_BASE] = true)
 
 #define MARK_TS_TYPED(C)				\
-  do {							\
-    MARK_TS_BASE (C);					\
-    tree_contains_struct[C][TS_TYPED] = 1;		\
-  } while (0)
+  (MARK_TS_BASE (C),					\
+   tree_contains_struct[C][TS_TYPED] = true)
 
 #define MARK_TS_COMMON(C)				\
-  do {							\
-    MARK_TS_TYPED (C);					\
-    tree_contains_struct[C][TS_COMMON] = 1;		\
-  } while (0)
+  (MARK_TS_TYPED (C),					\
+   tree_contains_struct[C][TS_COMMON] = true)
 
 #define MARK_TS_TYPE_COMMON(C)				\
-  do {							\
-    MARK_TS_COMMON (C);					\
-    tree_contains_struct[C][TS_TYPE_COMMON] = 1;	\
-  } while (0)
+  (MARK_TS_COMMON (C),					\
+   tree_contains_struct[C][TS_TYPE_COMMON] = true)
 
 #define MARK_TS_TYPE_WITH_LANG_SPECIFIC(C)		\
-  do {							\
-    MARK_TS_TYPE_COMMON (C);				\
-    tree_contains_struct[C][TS_TYPE_WITH_LANG_SPECIFIC] = 1;	\
-  } while (0)
+  (MARK_TS_TYPE_COMMON (C),				\
+   tree_contains_struct[C][TS_TYPE_WITH_LANG_SPECIFIC] = true)
 
 #define MARK_TS_DECL_MINIMAL(C)				\
-  do {							\
-    MARK_TS_COMMON (C);					\
-    tree_contains_struct[C][TS_DECL_MINIMAL] = 1;	\
-  } while (0)
+  (MARK_TS_COMMON (C),					\
+   tree_contains_struct[C][TS_DECL_MINIMAL] = true)
 
 #define MARK_TS_DECL_COMMON(C)				\
-  do {							\
-    MARK_TS_DECL_MINIMAL (C);				\
-    tree_contains_struct[C][TS_DECL_COMMON] = 1;	\
-  } while (0)
+  (MARK_TS_DECL_MINIMAL (C),				\
+   tree_contains_struct[C][TS_DECL_COMMON] = true)
 
 #define MARK_TS_DECL_WRTL(C)				\
-  do {							\
-    MARK_TS_DECL_COMMON (C);				\
-    tree_contains_struct[C][TS_DECL_WRTL] = 1;		\
-  } while (0)
+  (MARK_TS_DECL_COMMON (C),				\
+   tree_contains_struct[C][TS_DECL_WRTL] = true)
 
 #define MARK_TS_DECL_WITH_VIS(C)			\
-  do {							\
-    MARK_TS_DECL_WRTL (C);				\
-    tree_contains_struct[C][TS_DECL_WITH_VIS] = 1;	\
-  } while (0)
+  (MARK_TS_DECL_WRTL (C),				\
+   tree_contains_struct[C][TS_DECL_WITH_VIS] = true)
 
 #define MARK_TS_DECL_NON_COMMON(C)			\
-  do {							\
-    MARK_TS_DECL_WITH_VIS (C);				\
-    tree_contains_struct[C][TS_DECL_NON_COMMON] = 1;	\
-  } while (0)
-
+  (MARK_TS_DECL_WITH_VIS (C),				\
+   tree_contains_struct[C][TS_DECL_NON_COMMON] = true)
 
 /* Returns the string representing CLASS.  */
 
@@ -859,9 +838,6 @@ extern void omp_clause_range_check_failed (const_tree, const char *, int,
    && !TYPE_OVERFLOW_WRAPS (TYPE)			\
    && (flag_sanitize & SANITIZE_SI_OVERFLOW))
 
-/* True if pointer types have undefined overflow.  */
-#define POINTER_TYPE_OVERFLOW_UNDEFINED (!flag_wrapv)
-
 /* Nonzero in a VAR_DECL or STRING_CST means assembler code has been written.
    Nonzero in a FUNCTION_DECL means that the function has been compiled.
    This is interesting in an inline function, since it might not need
@@ -1029,7 +1005,7 @@ extern void omp_clause_range_check_failed (const_tree, const char *, int,
 #define TREE_IMAGPART(NODE) (COMPLEX_CST_CHECK (NODE)->complex.imag)
 
 /* In a VECTOR_CST node.  */
-#define VECTOR_CST_NELTS(NODE) (TYPE_VECTOR_SUBPARTS (TREE_TYPE (NODE)))
+#define VECTOR_CST_NELTS(NODE) (VECTOR_CST_CHECK (NODE)->base.u.nelts)
 #define VECTOR_CST_ELTS(NODE) (VECTOR_CST_CHECK (NODE)->vector.elts)
 #define VECTOR_CST_ELT(NODE,IDX) (VECTOR_CST_CHECK (NODE)->vector.elts[IDX])
 
@@ -1244,10 +1220,9 @@ extern void protected_set_expr_location (tree, location_t);
 #define COND_EXPR_ELSE(NODE)	(TREE_OPERAND (COND_EXPR_CHECK (NODE), 2))
 
 /* Accessors for the chains of recurrences.  */
-#define CHREC_VAR(NODE)           TREE_OPERAND (POLYNOMIAL_CHREC_CHECK (NODE), 0)
-#define CHREC_LEFT(NODE)          TREE_OPERAND (POLYNOMIAL_CHREC_CHECK (NODE), 1)
-#define CHREC_RIGHT(NODE)         TREE_OPERAND (POLYNOMIAL_CHREC_CHECK (NODE), 2)
-#define CHREC_VARIABLE(NODE)      TREE_INT_CST_LOW (CHREC_VAR (NODE))
+#define CHREC_LEFT(NODE)          TREE_OPERAND (POLYNOMIAL_CHREC_CHECK (NODE), 0)
+#define CHREC_RIGHT(NODE)         TREE_OPERAND (POLYNOMIAL_CHREC_CHECK (NODE), 1)
+#define CHREC_VARIABLE(NODE)      POLYNOMIAL_CHREC_CHECK (NODE)->base.u.chrec_var
 
 /* LABEL_EXPR accessor. This gives access to the label associated with
    the given label expression.  */
@@ -1852,10 +1827,17 @@ extern void protected_set_expr_location (tree, location_t);
 #define TYPE_MODE(NODE) \
   (VECTOR_TYPE_P (TYPE_CHECK (NODE)) \
    ? vector_type_mode (NODE) : (NODE)->type_common.mode)
+#define SCALAR_TYPE_MODE(NODE) \
+  (as_a <scalar_mode> (TYPE_CHECK (NODE)->type_common.mode))
+#define SCALAR_INT_TYPE_MODE(NODE) \
+  (as_a <scalar_int_mode> (TYPE_CHECK (NODE)->type_common.mode))
+#define SCALAR_FLOAT_TYPE_MODE(NODE) \
+  (as_a <scalar_float_mode> (TYPE_CHECK (NODE)->type_common.mode))
 #define SET_TYPE_MODE(NODE, MODE) \
   (TYPE_CHECK (NODE)->type_common.mode = (MODE))
 
-extern machine_mode element_mode (const_tree t);
+extern machine_mode element_mode (const_tree);
+extern machine_mode vector_type_mode (const_tree);
 
 /* The "canonical" type for this type node, which is used by frontends to
    compare the type for equality with another type.  If two types are
@@ -1921,6 +1903,16 @@ extern machine_mode element_mode (const_tree t);
 
 /* The alignment for NODE, in bytes.  */
 #define TYPE_ALIGN_UNIT(NODE) (TYPE_ALIGN (NODE) / BITS_PER_UNIT)
+
+/* The minimum alignment necessary for objects of this type without
+   warning.  The value is an int, measured in bits.  */
+#define TYPE_WARN_IF_NOT_ALIGN(NODE) \
+    (TYPE_CHECK (NODE)->type_common.warn_if_not_align \
+     ? ((unsigned)1) << ((NODE)->type_common.warn_if_not_align - 1) : 0)
+
+/* Specify that TYPE_WARN_IF_NOT_ALIGN(NODE) is X.  */
+#define SET_TYPE_WARN_IF_NOT_ALIGN(NODE, X) \
+    (TYPE_CHECK (NODE)->type_common.warn_if_not_align = ffs_hwi (X))
 
 /* If your language allows you to declare types, and you want debug info
    for them, then you need to generate corresponding TYPE_DECL nodes.
@@ -2080,11 +2072,6 @@ extern machine_mode element_mode (const_tree t);
 #define TYPE_SYMTAB_ADDRESS(NODE) \
   (TYPE_CHECK (NODE)->type_common.symtab.address)
 
-/* Symtab field as a string.  Used by COFF generator in sdbout.c to
-   hold struct/union type tag names.  */
-#define TYPE_SYMTAB_POINTER(NODE) \
-  (TYPE_CHECK (NODE)->type_common.symtab.pointer)
-
 /* Symtab field as a pointer to a DWARF DIE.  Used by DWARF generator
    in dwarf2out.c to point to the DIE generated for the type.  */
 #define TYPE_SYMTAB_DIE(NODE) \
@@ -2095,8 +2082,7 @@ extern machine_mode element_mode (const_tree t);
    union.  */
 
 #define TYPE_SYMTAB_IS_ADDRESS (0)
-#define TYPE_SYMTAB_IS_POINTER (1)
-#define TYPE_SYMTAB_IS_DIE (2)
+#define TYPE_SYMTAB_IS_DIE (1)
 
 #define TYPE_LANG_SPECIFIC(NODE) \
   (TYPE_CHECK (NODE)->type_with_lang_specific.lang_specific)
@@ -2132,14 +2118,13 @@ extern machine_mode element_mode (const_tree t);
 #define TYPE_ARRAY_MAX_SIZE(ARRAY_TYPE) \
   (ARRAY_TYPE_CHECK (ARRAY_TYPE)->type_non_common.maxval)
 #define TYPE_MAX_VALUE_RAW(NODE) (TYPE_CHECK (NODE)->type_non_common.maxval)
-
 /* For record and union types, information about this type, as a base type
    for itself.  */
-#define TYPE_BINFO(NODE) (RECORD_OR_UNION_CHECK (NODE)->type_non_common.binfo)
+#define TYPE_BINFO(NODE) (RECORD_OR_UNION_CHECK (NODE)->type_non_common.maxval)
 
-/* For non record and union types, used in a language-dependent way.  */
+/* For types, used in a language-dependent way.  */
 #define TYPE_LANG_SLOT_1(NODE) \
-  (NOT_RECORD_OR_UNION_CHECK (NODE)->type_non_common.binfo)
+  (TYPE_CHECK (NODE)->type_non_common.lang_1)
 
 /* Define accessor macros for information about type inheritance
    and basetypes.
@@ -2375,6 +2360,16 @@ extern machine_mode element_mode (const_tree t);
 #define SET_DECL_ALIGN(NODE, X) \
     (DECL_COMMON_CHECK (NODE)->decl_common.align = ffs_hwi (X))
 
+/* The minimum alignment necessary for the datum, in bits, without
+   warning.  */
+#define DECL_WARN_IF_NOT_ALIGN(NODE) \
+    (DECL_COMMON_CHECK (NODE)->decl_common.warn_if_not_align \
+     ? ((unsigned)1) << ((NODE)->decl_common.warn_if_not_align - 1) : 0)
+
+/* Specify that DECL_WARN_IF_NOT_ALIGN(NODE) is X.  */
+#define SET_DECL_WARN_IF_NOT_ALIGN(NODE, X) \
+    (DECL_COMMON_CHECK (NODE)->decl_common.warn_if_not_align = ffs_hwi (X))
+
 /* The alignment of NODE, in bytes.  */
 #define DECL_ALIGN_UNIT(NODE) (DECL_ALIGN (NODE) / BITS_PER_UNIT)
 /* Set if the alignment of this DECL has been set by the user, for
@@ -2394,6 +2389,18 @@ extern machine_mode element_mode (const_tree t);
    checked before any access to the former.  */
 #define DECL_FUNCTION_CODE(NODE) \
   (FUNCTION_DECL_CHECK (NODE)->function_decl.function_code)
+
+/* Test if FCODE is a function code for an alloca operation.  */
+#define ALLOCA_FUNCTION_CODE_P(FCODE)				\
+  ((FCODE) == BUILT_IN_ALLOCA					\
+   || (FCODE) == BUILT_IN_ALLOCA_WITH_ALIGN			\
+   || (FCODE) == BUILT_IN_ALLOCA_WITH_ALIGN_AND_MAX)
+
+/* Generate case for an alloca operation.  */
+#define CASE_BUILT_IN_ALLOCA			\
+  case BUILT_IN_ALLOCA:				\
+  case BUILT_IN_ALLOCA_WITH_ALIGN:		\
+  case BUILT_IN_ALLOCA_WITH_ALIGN_AND_MAX
 
 #define DECL_FUNCTION_PERSONALITY(NODE) \
   (FUNCTION_DECL_CHECK (NODE)->function_decl.personality)
@@ -2699,6 +2706,10 @@ extern void decl_value_expr_insert (tree, tree);
    LTO compilation and C++.  */
 #define DECL_ASSEMBLER_NAME(NODE) decl_assembler_name (NODE)
 
+/* Raw accessor for DECL_ASSEMBLE_NAME.  */
+#define DECL_ASSEMBLER_NAME_RAW(NODE) \
+  (DECL_WITH_VIS_CHECK (NODE)->decl_with_vis.assembler_name)
+
 /* Return true if NODE is a NODE that can contain a DECL_ASSEMBLER_NAME.
    This is true of all DECL nodes except FIELD_DECL.  */
 #define HAS_DECL_ASSEMBLER_NAME_P(NODE) \
@@ -2708,12 +2719,11 @@ extern void decl_value_expr_insert (tree, tree);
    the NODE might still have a DECL_ASSEMBLER_NAME -- it just hasn't been set
    yet.  */
 #define DECL_ASSEMBLER_NAME_SET_P(NODE) \
-  (HAS_DECL_ASSEMBLER_NAME_P (NODE) \
-   && DECL_WITH_VIS_CHECK (NODE)->decl_with_vis.assembler_name != NULL_TREE)
+  (DECL_ASSEMBLER_NAME_RAW (NODE) != NULL_TREE)
 
 /* Set the DECL_ASSEMBLER_NAME for NODE to NAME.  */
 #define SET_DECL_ASSEMBLER_NAME(NODE, NAME) \
-  (DECL_WITH_VIS_CHECK (NODE)->decl_with_vis.assembler_name = (NAME))
+  (DECL_ASSEMBLER_NAME_RAW (NODE) = (NAME))
 
 /* Copy the DECL_ASSEMBLER_NAME from DECL1 to DECL2.  Note that if DECL1's
    DECL_ASSEMBLER_NAME has not yet been set, using this macro will not cause
@@ -2725,10 +2735,7 @@ extern void decl_value_expr_insert (tree, tree);
    which will try to set the DECL_ASSEMBLER_NAME for DECL1.  */
 
 #define COPY_DECL_ASSEMBLER_NAME(DECL1, DECL2)				\
-  (DECL_ASSEMBLER_NAME_SET_P (DECL1)					\
-   ? (void) SET_DECL_ASSEMBLER_NAME (DECL2,				\
-				     DECL_ASSEMBLER_NAME (DECL1))	\
-   : (void) 0)
+  SET_DECL_ASSEMBLER_NAME (DECL2, DECL_ASSEMBLER_NAME_RAW (DECL1))
 
 /* Records the section name in a section attribute.  Used to pass
    the name from decl_attributes to make_function_rtl and make_decl_rtl.  */
@@ -4003,7 +4010,7 @@ extern tree build_int_cst (tree, HOST_WIDE_INT);
 extern tree build_int_cstu (tree type, unsigned HOST_WIDE_INT cst);
 extern tree build_int_cst_type (tree, HOST_WIDE_INT);
 extern tree make_vector (unsigned CXX_MEM_STAT_INFO);
-extern tree build_vector (tree, tree * CXX_MEM_STAT_INFO);
+extern tree build_vector (tree, vec<tree> CXX_MEM_STAT_INFO);
 extern tree build_vector_from_ctor (tree, vec<constructor_elt, va_gc> *);
 extern tree build_vector_from_val (tree, tree);
 extern void recompute_constructor_flags (tree);
@@ -4049,6 +4056,7 @@ extern tree build_call_expr_internal_loc_array (location_t, enum internal_fn,
 						tree, int, const tree *);
 extern tree maybe_build_call_expr_loc (location_t, combined_fn, tree,
 				       int, ...);
+extern tree build_alloca_call_expr (tree, unsigned int, HOST_WIDE_INT);
 extern tree build_string_literal (int, const char *);
 
 /* Construct various nodes representing data types.  */
@@ -4091,8 +4099,6 @@ extern tree purpose_member (const_tree, tree);
 extern bool vec_member (const_tree, vec<tree, va_gc> *);
 extern tree chain_index (int, tree);
 
-extern int attribute_list_equal (const_tree, const_tree);
-extern int attribute_list_contained (const_tree, const_tree);
 extern int tree_int_cst_equal (const_tree, const_tree);
 
 extern bool tree_fits_shwi_p (const_tree)
@@ -4129,111 +4135,6 @@ extern bool valid_constant_size_p (const_tree);
    tree.h had been included.  */
 
 extern tree make_tree (tree, rtx);
-
-/* Return a type like TTYPE except that its TYPE_ATTRIBUTES
-   is ATTRIBUTE.
-
-   Such modified types already made are recorded so that duplicates
-   are not made.  */
-
-extern tree build_type_attribute_variant (tree, tree);
-extern tree build_decl_attribute_variant (tree, tree);
-extern tree build_type_attribute_qual_variant (tree, tree, int);
-
-extern bool attribute_value_equal (const_tree, const_tree);
-
-/* Return 0 if the attributes for two types are incompatible, 1 if they
-   are compatible, and 2 if they are nearly compatible (which causes a
-   warning to be generated).  */
-extern int comp_type_attributes (const_tree, const_tree);
-
-/* Default versions of target-overridable functions.  */
-extern tree merge_decl_attributes (tree, tree);
-extern tree merge_type_attributes (tree, tree);
-
-/* This function is a private implementation detail of lookup_attribute()
-   and you should never call it directly.  */
-extern tree private_lookup_attribute (const char *, size_t, tree);
-
-/* This function is a private implementation detail
-   of lookup_attribute_by_prefix() and you should never call it directly.  */
-extern tree private_lookup_attribute_by_prefix (const char *, size_t, tree);
-
-/* Given an attribute name ATTR_NAME and a list of attributes LIST,
-   return a pointer to the attribute's list element if the attribute
-   is part of the list, or NULL_TREE if not found.  If the attribute
-   appears more than once, this only returns the first occurrence; the
-   TREE_CHAIN of the return value should be passed back in if further
-   occurrences are wanted.  ATTR_NAME must be in the form 'text' (not
-   '__text__').  */
-
-static inline tree
-lookup_attribute (const char *attr_name, tree list)
-{
-  gcc_checking_assert (attr_name[0] != '_');  
-  /* In most cases, list is NULL_TREE.  */
-  if (list == NULL_TREE)
-    return NULL_TREE;
-  else
-    /* Do the strlen() before calling the out-of-line implementation.
-       In most cases attr_name is a string constant, and the compiler
-       will optimize the strlen() away.  */
-    return private_lookup_attribute (attr_name, strlen (attr_name), list);
-}
-
-/* Given an attribute name ATTR_NAME and a list of attributes LIST,
-   return a pointer to the attribute's list first element if the attribute
-   starts with ATTR_NAME. ATTR_NAME must be in the form 'text' (not
-   '__text__').  */
-
-static inline tree
-lookup_attribute_by_prefix (const char *attr_name, tree list)
-{
-  gcc_checking_assert (attr_name[0] != '_');
-  /* In most cases, list is NULL_TREE.  */
-  if (list == NULL_TREE)
-    return NULL_TREE;
-  else
-    return private_lookup_attribute_by_prefix (attr_name, strlen (attr_name),
-					       list);
-}
-
-
-/* This function is a private implementation detail of
-   is_attribute_p() and you should never call it directly.  */
-extern bool private_is_attribute_p (const char *, size_t, const_tree);
-
-/* Given an identifier node IDENT and a string ATTR_NAME, return true
-   if the identifier node is a valid attribute name for the string.
-   ATTR_NAME must be in the form 'text' (not '__text__').  IDENT could
-   be the identifier for 'text' or for '__text__'.  */
-
-static inline bool
-is_attribute_p (const char *attr_name, const_tree ident)
-{
-  gcc_checking_assert (attr_name[0] != '_');
-  /* Do the strlen() before calling the out-of-line implementation.
-     In most cases attr_name is a string constant, and the compiler
-     will optimize the strlen() away.  */
-  return private_is_attribute_p (attr_name, strlen (attr_name), ident);
-}
-
-/* Remove any instances of attribute ATTR_NAME in LIST and return the
-   modified list.  ATTR_NAME must be in the form 'text' (not
-   '__text__').  */
-
-extern tree remove_attribute (const char *, tree);
-
-/* Given two attributes lists, return a list of their union.  */
-
-extern tree merge_attributes (tree, tree);
-
-/* Given two Windows decl attributes lists, possibly including
-   dllimport, return a list of their union .  */
-extern tree merge_dllimport_decl_attributes (tree, tree);
-
-/* Handle a "dllimport" or "dllexport" attribute.  */
-extern tree handle_dll_attribute (tree *, tree, tree, int, bool *);
 
 /* Returns true iff CAND and BASE have equivalent language-specific
    qualifiers.  */
@@ -5204,20 +5105,6 @@ extern bool anon_aggrname_p (const_tree);
 /* The tree and const_tree overload templates.   */
 namespace wi
 {
-  template <>
-  struct int_traits <const_tree>
-  {
-    static const enum precision_type precision_type = VAR_PRECISION;
-    static const bool host_dependent_precision = false;
-    static const bool is_sign_extended = false;
-    static unsigned int get_precision (const_tree);
-    static wi::storage_ref decompose (HOST_WIDE_INT *, unsigned int,
-				      const_tree);
-  };
-
-  template <>
-  struct int_traits <tree> : public int_traits <const_tree> {};
-
   template <int N>
   class extended_tree
   {
@@ -5241,39 +5128,113 @@ namespace wi
     static const unsigned int precision = N;
   };
 
-  generic_wide_int <extended_tree <WIDE_INT_MAX_PRECISION> >
-  to_widest (const_tree);
+  typedef const generic_wide_int <extended_tree <WIDE_INT_MAX_PRECISION> >
+    tree_to_widest_ref;
+  typedef const generic_wide_int <extended_tree <ADDR_MAX_PRECISION> >
+    tree_to_offset_ref;
+  typedef const generic_wide_int<wide_int_ref_storage<false, false> >
+    tree_to_wide_ref;
 
-  generic_wide_int <extended_tree <ADDR_MAX_PRECISION> > to_offset (const_tree);
-
+  tree_to_widest_ref to_widest (const_tree);
+  tree_to_offset_ref to_offset (const_tree);
+  tree_to_wide_ref to_wide (const_tree);
   wide_int to_wide (const_tree, unsigned int);
 }
 
-inline unsigned int
-wi::int_traits <const_tree>::get_precision (const_tree tcst)
-{
-  return TYPE_PRECISION (TREE_TYPE (tcst));
-}
+/* Refer to INTEGER_CST T as though it were a widest_int.
 
-/* Convert the tree_cst X into a wide_int of PRECISION.  */
-inline wi::storage_ref
-wi::int_traits <const_tree>::decompose (HOST_WIDE_INT *,
-					unsigned int precision, const_tree x)
-{
-  return wi::storage_ref (&TREE_INT_CST_ELT (x, 0), TREE_INT_CST_NUNITS (x),
-			  precision);
-}
+   This function gives T's actual numerical value, influenced by the
+   signedness of its type.  For example, a signed byte with just the
+   top bit set would be -128 while an unsigned byte with the same
+   bit pattern would be 128.
 
-inline generic_wide_int <wi::extended_tree <WIDE_INT_MAX_PRECISION> >
+   This is the right choice when operating on groups of INTEGER_CSTs
+   that might have different signedness or precision.  It is also the
+   right choice in code that specifically needs an approximation of
+   infinite-precision arithmetic instead of normal modulo arithmetic.
+
+   The approximation of infinite precision is good enough for realistic
+   numbers of additions and subtractions of INTEGER_CSTs (where
+   "realistic" includes any number less than 1 << 31) but it cannot
+   represent the result of multiplying the two largest supported
+   INTEGER_CSTs.  The overflow-checking form of wi::mul provides a way
+   of multiplying two arbitrary INTEGER_CSTs and checking that the
+   result is representable as a widest_int.
+
+   Note that any overflow checking done on these values is relative to
+   the range of widest_int rather than the range of a TREE_TYPE.
+
+   Calling this function should have no overhead in release builds,
+   so it is OK to call it several times for the same tree.  If it is
+   useful for readability reasons to reduce the number of calls,
+   it is more efficient to use:
+
+     wi::tree_to_widest_ref wt = wi::to_widest (t);
+
+   instead of:
+
+     widest_int wt = wi::to_widest (t).  */
+
+inline wi::tree_to_widest_ref
 wi::to_widest (const_tree t)
 {
   return t;
 }
 
-inline generic_wide_int <wi::extended_tree <ADDR_MAX_PRECISION> >
+/* Refer to INTEGER_CST T as though it were an offset_int.
+
+   This function is an optimisation of wi::to_widest for cases
+   in which T is known to be a bit or byte count in the range
+   (-(2 ^ (N + BITS_PER_UNIT)), 2 ^ (N + BITS_PER_UNIT)), where N is
+   the target's address size in bits.
+
+   This is the right choice when operating on bit or byte counts as
+   untyped numbers rather than M-bit values.  The wi::to_widest comments
+   about addition, subtraction and multiplication apply here: sequences
+   of 1 << 31 additions and subtractions do not induce overflow, but
+   multiplying the largest sizes might.  Again,
+
+     wi::tree_to_offset_ref wt = wi::to_offset (t);
+
+   is more efficient than:
+
+     offset_int wt = wi::to_offset (t).  */
+
+inline wi::tree_to_offset_ref
 wi::to_offset (const_tree t)
 {
   return t;
+}
+
+/* Refer to INTEGER_CST T as though it were a wide_int.
+
+   In contrast to the approximation of infinite-precision numbers given
+   by wi::to_widest and wi::to_offset, this function treats T as a
+   signless collection of N bits, where N is the precision of T's type.
+   As with machine registers, signedness is determined by the operation
+   rather than the operands; for example, there is a distinction between
+   signed and unsigned division.
+
+   This is the right choice when operating on values with the same type
+   using normal modulo arithmetic.  The overflow-checking forms of things
+   like wi::add check whether the result can be represented in T's type.
+
+   Calling this function should have no overhead in release builds,
+   so it is OK to call it several times for the same tree.  If it is
+   useful for readability reasons to reduce the number of calls,
+   it is more efficient to use:
+
+     wi::tree_to_wide_ref wt = wi::to_wide (t);
+
+   instead of:
+
+     wide_int wt = wi::to_wide (t).  */
+
+inline wi::tree_to_wide_ref
+wi::to_wide (const_tree t)
+{
+  return wi::storage_ref (&TREE_INT_CST_ELT (t, 0), TREE_INT_CST_NUNITS (t),
+			  TYPE_PRECISION (TREE_TYPE (t)));
 }
 
 /* Convert INTEGER_CST T to a wide_int of precision PREC, extending or
@@ -5283,7 +5244,7 @@ wi::to_offset (const_tree t)
 inline wide_int
 wi::to_wide (const_tree t, unsigned int prec)
 {
-  return wide_int::from (t, prec, TYPE_SIGN (TREE_TYPE (t)));
+  return wide_int::from (wi::to_wide (t), prec, TYPE_SIGN (TREE_TYPE (t)));
 }
 
 template <int N>
@@ -5504,4 +5465,13 @@ struct builtin_structptr_type
   const char *str;
 };
 extern const builtin_structptr_type builtin_structptr_types[6];
+
+/* Return true if type T has the same precision as its underlying mode.  */
+
+inline bool
+type_has_mode_precision_p (const_tree t)
+{
+  return TYPE_PRECISION (t) == GET_MODE_PRECISION (TYPE_MODE (t));
+}
+
 #endif  /* GCC_TREE_H  */

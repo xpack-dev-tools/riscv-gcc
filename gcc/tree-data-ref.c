@@ -124,8 +124,7 @@ static struct datadep_stats
 } dependence_stats;
 
 static bool subscript_dependence_tester_1 (struct data_dependence_relation *,
-					   struct data_reference *,
-					   struct data_reference *,
+					   unsigned int, unsigned int,
 					   struct loop *);
 /* Returns true iff A divides B.  */
 
@@ -143,6 +142,21 @@ static inline bool
 int_divides_p (int a, int b)
 {
   return ((b % a) == 0);
+}
+
+/* Return true if reference REF contains a union access.  */
+
+static bool
+ref_contains_union_access_p (tree ref)
+{
+  while (handled_component_p (ref))
+    {
+      ref = TREE_OPERAND (ref, 0);
+      if (TREE_CODE (TREE_TYPE (ref)) == UNION_TYPE
+	  || TREE_CODE (TREE_TYPE (ref)) == QUAL_UNION_TYPE)
+	return true;
+    }
+  return false;
 }
 
 
@@ -434,13 +448,14 @@ dump_data_dependence_relation (FILE *outf,
       unsigned int i;
       struct loop *loopi;
 
-      for (i = 0; i < DDR_NUM_SUBSCRIPTS (ddr); i++)
+      subscript *sub;
+      FOR_EACH_VEC_ELT (DDR_SUBSCRIPTS (ddr), i, sub)
 	{
 	  fprintf (outf, "  access_fn_A: ");
-	  print_generic_stmt (outf, DR_ACCESS_FN (dra, i));
+	  print_generic_stmt (outf, SUB_ACCESS_FN (sub, 0));
 	  fprintf (outf, "  access_fn_B: ");
-	  print_generic_stmt (outf, DR_ACCESS_FN (drb, i));
-	  dump_subscript (outf, DDR_SUBSCRIPT (ddr, i));
+	  print_generic_stmt (outf, SUB_ACCESS_FN (sub, 1));
+	  dump_subscript (outf, sub);
 	}
 
       fprintf (outf, "  inner loop index: %d\n", DDR_INNER_LOOP (ddr));
@@ -920,16 +935,36 @@ dr_analyze_innermost (innermost_loop_behavior *drb, tree ref,
   return true;
 }
 
+/* Return true if OP is a valid component reference for a DR access
+   function.  This accepts a subset of what handled_component_p accepts.  */
+
+static bool
+access_fn_component_p (tree op)
+{
+  switch (TREE_CODE (op))
+    {
+    case REALPART_EXPR:
+    case IMAGPART_EXPR:
+    case ARRAY_REF:
+      return true;
+
+    case COMPONENT_REF:
+      return TREE_CODE (TREE_TYPE (TREE_OPERAND (op, 0))) == RECORD_TYPE;
+
+    default:
+      return false;
+    }
+}
+
 /* Determines the base object and the list of indices of memory reference
-   DR, analyzed in LOOP and instantiated in loop nest NEST.  */
+   DR, analyzed in LOOP and instantiated before NEST.  */
 
 static void
-dr_analyze_indices (struct data_reference *dr, loop_p nest, loop_p loop)
+dr_analyze_indices (struct data_reference *dr, edge nest, loop_p loop)
 {
   vec<tree> access_fns = vNULL;
   tree ref, op;
   tree base, off, access_fn;
-  basic_block before_loop;
 
   /* If analyzing a basic-block there are no indices to analyze
      and thus no access functions.  */
@@ -941,7 +976,6 @@ dr_analyze_indices (struct data_reference *dr, loop_p nest, loop_p loop)
     }
 
   ref = DR_REF (dr);
-  before_loop = block_before_loop (nest);
 
   /* REALPART_EXPR and IMAGPART_EXPR can be handled like accesses
      into a two element array with a constant index.  The base is
@@ -957,14 +991,16 @@ dr_analyze_indices (struct data_reference *dr, loop_p nest, loop_p loop)
       access_fns.safe_push (integer_one_node);
     }
 
-  /* Analyze access functions of dimensions we know to be independent.  */
+  /* Analyze access functions of dimensions we know to be independent.
+     The list of component references handled here should be kept in
+     sync with access_fn_component_p.  */
   while (handled_component_p (ref))
     {
       if (TREE_CODE (ref) == ARRAY_REF)
 	{
 	  op = TREE_OPERAND (ref, 1);
 	  access_fn = analyze_scalar_evolution (loop, op);
-	  access_fn = instantiate_scev (before_loop, loop, access_fn);
+	  access_fn = instantiate_scev (nest, loop, access_fn);
 	  access_fns.safe_push (access_fn);
 	}
       else if (TREE_CODE (ref) == COMPONENT_REF
@@ -996,7 +1032,7 @@ dr_analyze_indices (struct data_reference *dr, loop_p nest, loop_p loop)
     {
       op = TREE_OPERAND (ref, 0);
       access_fn = analyze_scalar_evolution (loop, op);
-      access_fn = instantiate_scev (before_loop, loop, access_fn);
+      access_fn = instantiate_scev (nest, loop, access_fn);
       if (TREE_CODE (access_fn) == POLYNOMIAL_CHREC)
 	{
 	  tree orig_type;
@@ -1022,12 +1058,15 @@ dr_analyze_indices (struct data_reference *dr, loop_p nest, loop_p loop)
 	  if (TYPE_SIZE_UNIT (TREE_TYPE (ref))
 	      && TREE_CODE (TYPE_SIZE_UNIT (TREE_TYPE (ref))) == INTEGER_CST
 	      && !integer_zerop (TYPE_SIZE_UNIT (TREE_TYPE (ref))))
-	    rem = wi::mod_trunc (off, TYPE_SIZE_UNIT (TREE_TYPE (ref)), SIGNED);
+	    rem = wi::mod_trunc
+	      (wi::to_wide (off),
+	       wi::to_wide (TYPE_SIZE_UNIT (TREE_TYPE (ref))),
+	       SIGNED);
 	  else
 	    /* If we can't compute the remainder simply force the initial
 	       condition to zero.  */
-	    rem = off;
-	  off = wide_int_to_tree (ssizetype, wi::sub (off, rem));
+	    rem = wi::to_wide (off);
+	  off = wide_int_to_tree (ssizetype, wi::to_wide (off) - rem);
 	  memoff = wide_int_to_tree (TREE_TYPE (memoff), rem);
 	  /* And finally replace the initial condition.  */
 	  access_fn = chrec_replace_initial_condition
@@ -1087,15 +1126,19 @@ free_data_ref (data_reference_p dr)
   free (dr);
 }
 
-/* Analyzes memory reference MEMREF accessed in STMT.  The reference
-   is read if IS_READ is true, write otherwise.  Returns the
-   data_reference description of MEMREF.  NEST is the outermost loop
-   in which the reference should be instantiated, LOOP is the loop in
-   which the data reference should be analyzed.  */
+/* Analyze memory reference MEMREF, which is accessed in STMT.
+   The reference is a read if IS_READ is true, otherwise it is a write.
+   IS_CONDITIONAL_IN_STMT indicates that the reference is conditional
+   within STMT, i.e. that it might not occur even if STMT is executed
+   and runs to completion.
+
+   Return the data_reference description of MEMREF.  NEST is the outermost
+   loop in which the reference should be instantiated, LOOP is the loop
+   in which the data reference should be analyzed.  */
 
 struct data_reference *
-create_data_ref (loop_p nest, loop_p loop, tree memref, gimple *stmt,
-		 bool is_read)
+create_data_ref (edge nest, loop_p loop, tree memref, gimple *stmt,
+		 bool is_read, bool is_conditional_in_stmt)
 {
   struct data_reference *dr;
 
@@ -1110,6 +1153,7 @@ create_data_ref (loop_p nest, loop_p loop, tree memref, gimple *stmt,
   DR_STMT (dr) = stmt;
   DR_REF (dr) = memref;
   DR_IS_READ (dr) = is_read;
+  DR_IS_CONDITIONAL_IN_STMT (dr) = is_conditional_in_stmt;
 
   dr_analyze_innermost (&DR_INNERMOST (dr), memref,
 			nest != NULL ? loop : NULL);
@@ -1164,35 +1208,28 @@ data_ref_compare_tree (tree t1, tree t2)
   if (t2 == NULL)
     return 1;
 
-  STRIP_NOPS (t1);
-  STRIP_NOPS (t2);
+  STRIP_USELESS_TYPE_CONVERSION (t1);
+  STRIP_USELESS_TYPE_CONVERSION (t2);
+  if (t1 == t2)
+    return 0;
 
-  if (TREE_CODE (t1) != TREE_CODE (t2))
+  if (TREE_CODE (t1) != TREE_CODE (t2)
+      && ! (CONVERT_EXPR_P (t1) && CONVERT_EXPR_P (t2)))
     return TREE_CODE (t1) < TREE_CODE (t2) ? -1 : 1;
 
   code = TREE_CODE (t1);
   switch (code)
     {
-    /* For const values, we can just use hash values for comparisons.  */
     case INTEGER_CST:
-    case REAL_CST:
-    case FIXED_CST:
+      return tree_int_cst_compare (t1, t2);
+
     case STRING_CST:
-    case COMPLEX_CST:
-    case VECTOR_CST:
-      {
-	hashval_t h1 = iterative_hash_expr (t1, 0);
-	hashval_t h2 = iterative_hash_expr (t2, 0);
-	if (h1 != h2)
-	  return h1 < h2 ? -1 : 1;
-	break;
-      }
+      if (TREE_STRING_LENGTH (t1) != TREE_STRING_LENGTH (t2))
+	return TREE_STRING_LENGTH (t1) < TREE_STRING_LENGTH (t2) ? -1 : 1;
+      return memcmp (TREE_STRING_POINTER (t1), TREE_STRING_POINTER (t2),
+		     TREE_STRING_LENGTH (t1));
 
     case SSA_NAME:
-      cmp = data_ref_compare_tree (SSA_NAME_VAR (t1), SSA_NAME_VAR (t2));
-      if (cmp != 0)
-	return cmp;
-
       if (SSA_NAME_VERSION (t1) != SSA_NAME_VERSION (t2))
 	return SSA_NAME_VERSION (t1) < SSA_NAME_VERSION (t2) ? -1 : 1;
       break;
@@ -1200,22 +1237,26 @@ data_ref_compare_tree (tree t1, tree t2)
     default:
       tclass = TREE_CODE_CLASS (code);
 
-      /* For var-decl, we could compare their UIDs.  */
+      /* For decls, compare their UIDs.  */
       if (tclass == tcc_declaration)
 	{
 	  if (DECL_UID (t1) != DECL_UID (t2))
 	    return DECL_UID (t1) < DECL_UID (t2) ? -1 : 1;
 	  break;
 	}
-
-      /* For expressions with operands, compare their operands recursively.  */
-      for (i = TREE_OPERAND_LENGTH (t1) - 1; i >= 0; --i)
+      /* For expressions, compare their operands recursively.  */
+      else if (IS_EXPR_CODE_CLASS (tclass))
 	{
-	  cmp = data_ref_compare_tree (TREE_OPERAND (t1, i),
-				       TREE_OPERAND (t2, i));
-	  if (cmp != 0)
-	    return cmp;
+	  for (i = TREE_OPERAND_LENGTH (t1) - 1; i >= 0; --i)
+	    {
+	      cmp = data_ref_compare_tree (TREE_OPERAND (t1, i),
+					   TREE_OPERAND (t2, i));
+	      if (cmp != 0)
+		return cmp;
+	    }
 	}
+      else
+	gcc_unreachable ();
     }
 
   return 0;
@@ -1445,14 +1486,16 @@ prune_runtime_alias_test_list (vec<dr_with_seg_len_pair_t> *alias_pairs,
 	    std::swap (*dr_a1, *dr_a2);
 
 	  bool do_remove = false;
-	  wide_int diff = wi::sub (DR_INIT (dr_a2->dr), DR_INIT (dr_a1->dr));
+	  wide_int diff = (wi::to_wide (DR_INIT (dr_a2->dr))
+			   - wi::to_wide (DR_INIT (dr_a1->dr)));
 	  wide_int min_seg_len_b;
 	  tree new_seg_len;
 
 	  if (TREE_CODE (dr_b1->seg_len) == INTEGER_CST)
-	    min_seg_len_b = wi::abs (dr_b1->seg_len);
+	    min_seg_len_b = wi::abs (wi::to_wide (dr_b1->seg_len));
 	  else
-	    min_seg_len_b = wi::mul (factor, wi::abs (DR_STEP (dr_b1->dr)));
+	    min_seg_len_b
+	      = factor * wi::abs (wi::to_wide (DR_STEP (dr_b1->dr)));
 
 	  /* Now we try to merge alias check dr_a1 & dr_b and dr_a2 & dr_b.
 
@@ -1491,7 +1534,7 @@ prune_runtime_alias_test_list (vec<dr_with_seg_len_pair_t> *alias_pairs,
 	      /* Adjust diff according to access size of both references.  */
 	      tree size_a1 = TYPE_SIZE_UNIT (TREE_TYPE (DR_REF (dr_a1->dr)));
 	      tree size_a2 = TYPE_SIZE_UNIT (TREE_TYPE (DR_REF (dr_a2->dr)));
-	      diff = wi::add (diff, wi::sub (size_a2, size_a1));
+	      diff += wi::to_wide (size_a2) - wi::to_wide (size_a1);
 	      /* Case A.1.  */
 	      if (wi::leu_p (diff, min_seg_len_b)
 		  /* Case A.2 and B combined.  */
@@ -1499,11 +1542,12 @@ prune_runtime_alias_test_list (vec<dr_with_seg_len_pair_t> *alias_pairs,
 		{
 		  if (tree_fits_uhwi_p (dr_a1->seg_len)
 		      && tree_fits_uhwi_p (dr_a2->seg_len))
-		    new_seg_len
-		      = wide_int_to_tree (sizetype,
-					  wi::umin (wi::sub (dr_a1->seg_len,
-							     diff),
-						    dr_a2->seg_len));
+		    {
+		      wide_int min_len
+			= wi::umin (wi::to_wide (dr_a1->seg_len) - diff,
+				    wi::to_wide (dr_a2->seg_len));
+		      new_seg_len = wide_int_to_tree (sizetype, min_len);
+		    }
 		  else
 		    new_seg_len
 		      = size_binop (MINUS_EXPR, dr_a2->seg_len,
@@ -1522,11 +1566,12 @@ prune_runtime_alias_test_list (vec<dr_with_seg_len_pair_t> *alias_pairs,
 		{
 		  if (tree_fits_uhwi_p (dr_a1->seg_len)
 		      && tree_fits_uhwi_p (dr_a2->seg_len))
-		    new_seg_len
-		      = wide_int_to_tree (sizetype,
-					  wi::umax (wi::add (dr_a2->seg_len,
-							     diff),
-						    dr_a1->seg_len));
+		    {
+		      wide_int max_len
+			= wi::umax (wi::to_wide (dr_a2->seg_len) + diff,
+				    wi::to_wide (dr_a1->seg_len));
+		      new_seg_len = wide_int_to_tree (sizetype, max_len);
+		    }
 		  else
 		    new_seg_len
 		      = size_binop (PLUS_EXPR, dr_a2->seg_len,
@@ -2148,6 +2193,38 @@ dr_may_alias_p (const struct data_reference *a, const struct data_reference *b,
   return refs_may_alias_p (addr_a, addr_b);
 }
 
+/* REF_A and REF_B both satisfy access_fn_component_p.  Return true
+   if it is meaningful to compare their associated access functions
+   when checking for dependencies.  */
+
+static bool
+access_fn_components_comparable_p (tree ref_a, tree ref_b)
+{
+  /* Allow pairs of component refs from the following sets:
+
+       { REALPART_EXPR, IMAGPART_EXPR }
+       { COMPONENT_REF }
+       { ARRAY_REF }.  */
+  tree_code code_a = TREE_CODE (ref_a);
+  tree_code code_b = TREE_CODE (ref_b);
+  if (code_a == IMAGPART_EXPR)
+    code_a = REALPART_EXPR;
+  if (code_b == IMAGPART_EXPR)
+    code_b = REALPART_EXPR;
+  if (code_a != code_b)
+    return false;
+
+  if (TREE_CODE (ref_a) == COMPONENT_REF)
+    /* ??? We cannot simply use the type of operand #0 of the refs here as
+       the Fortran compiler smuggles type punning into COMPONENT_REFs.
+       Use the DECL_CONTEXT of the FIELD_DECLs instead.  */
+    return (DECL_CONTEXT (TREE_OPERAND (ref_a, 1))
+	    == DECL_CONTEXT (TREE_OPERAND (ref_b, 1)));
+
+  return types_compatible_p (TREE_TYPE (TREE_OPERAND (ref_a, 0)),
+			     TREE_TYPE (TREE_OPERAND (ref_b, 0)));
+}
+
 /* Initialize a data dependence relation between data accesses A and
    B.  NB_LOOPS is the number of loops surrounding the references: the
    size of the classic distance/direction vectors.  */
@@ -2160,11 +2237,10 @@ initialize_data_dependence_relation (struct data_reference *a,
   struct data_dependence_relation *res;
   unsigned int i;
 
-  res = XNEW (struct data_dependence_relation);
+  res = XCNEW (struct data_dependence_relation);
   DDR_A (res) = a;
   DDR_B (res) = b;
   DDR_LOOP_NEST (res).create (0);
-  DDR_REVERSED_P (res) = false;
   DDR_SUBSCRIPTS (res).create (0);
   DDR_DIR_VECTS (res).create (0);
   DDR_DIST_VECTS (res).create (0);
@@ -2182,82 +2258,286 @@ initialize_data_dependence_relation (struct data_reference *a,
       return res;
     }
 
-  /* The case where the references are exactly the same.  */
-  if (operand_equal_p (DR_REF (a), DR_REF (b), 0))
+  unsigned int num_dimensions_a = DR_NUM_DIMENSIONS (a);
+  unsigned int num_dimensions_b = DR_NUM_DIMENSIONS (b);
+  if (num_dimensions_a == 0 || num_dimensions_b == 0)
     {
-      if ((loop_nest.exists ()
-	   && !object_address_invariant_in_loop_p (loop_nest[0],
-						   DR_BASE_OBJECT (a)))
-	  || DR_NUM_DIMENSIONS (a) == 0)
+      DDR_ARE_DEPENDENT (res) = chrec_dont_know;
+      return res;
+    }
+
+  /* For unconstrained bases, the root (highest-indexed) subscript
+     describes a variation in the base of the original DR_REF rather
+     than a component access.  We have no type that accurately describes
+     the new DR_BASE_OBJECT (whose TREE_TYPE describes the type *after*
+     applying this subscript) so limit the search to the last real
+     component access.
+
+     E.g. for:
+
+	void
+	f (int a[][8], int b[][8])
+	{
+	  for (int i = 0; i < 8; ++i)
+	    a[i * 2][0] = b[i][0];
+	}
+
+     the a and b accesses have a single ARRAY_REF component reference [0]
+     but have two subscripts.  */
+  if (DR_UNCONSTRAINED_BASE (a))
+    num_dimensions_a -= 1;
+  if (DR_UNCONSTRAINED_BASE (b))
+    num_dimensions_b -= 1;
+
+  /* These structures describe sequences of component references in
+     DR_REF (A) and DR_REF (B).  Each component reference is tied to a
+     specific access function.  */
+  struct {
+    /* The sequence starts at DR_ACCESS_FN (A, START_A) of A and
+       DR_ACCESS_FN (B, START_B) of B (inclusive) and extends to higher
+       indices.  In C notation, these are the indices of the rightmost
+       component references; e.g. for a sequence .b.c.d, the start
+       index is for .d.  */
+    unsigned int start_a;
+    unsigned int start_b;
+
+    /* The sequence contains LENGTH consecutive access functions from
+       each DR.  */
+    unsigned int length;
+
+    /* The enclosing objects for the A and B sequences respectively,
+       i.e. the objects to which DR_ACCESS_FN (A, START_A + LENGTH - 1)
+       and DR_ACCESS_FN (B, START_B + LENGTH - 1) are applied.  */
+    tree object_a;
+    tree object_b;
+  } full_seq = {}, struct_seq = {};
+
+  /* Before each iteration of the loop:
+
+     - REF_A is what you get after applying DR_ACCESS_FN (A, INDEX_A) and
+     - REF_B is what you get after applying DR_ACCESS_FN (B, INDEX_B).  */
+  unsigned int index_a = 0;
+  unsigned int index_b = 0;
+  tree ref_a = DR_REF (a);
+  tree ref_b = DR_REF (b);
+
+  /* Now walk the component references from the final DR_REFs back up to
+     the enclosing base objects.  Each component reference corresponds
+     to one access function in the DR, with access function 0 being for
+     the final DR_REF and the highest-indexed access function being the
+     one that is applied to the base of the DR.
+
+     Look for a sequence of component references whose access functions
+     are comparable (see access_fn_components_comparable_p).  If more
+     than one such sequence exists, pick the one nearest the base
+     (which is the leftmost sequence in C notation).  Store this sequence
+     in FULL_SEQ.
+
+     For example, if we have:
+
+	struct foo { struct bar s; ... } (*a)[10], (*b)[10];
+
+	A: a[0][i].s.c.d
+	B: __real b[0][i].s.e[i].f
+
+     (where d is the same type as the real component of f) then the access
+     functions would be:
+
+			 0   1   2   3
+	A:              .d  .c  .s [i]
+
+		 0   1   2   3   4   5
+	B:  __real  .f [i]  .e  .s [i]
+
+     The A0/B2 column isn't comparable, since .d is a COMPONENT_REF
+     and [i] is an ARRAY_REF.  However, the A1/B3 column contains two
+     COMPONENT_REF accesses for struct bar, so is comparable.  Likewise
+     the A2/B4 column contains two COMPONENT_REF accesses for struct foo,
+     so is comparable.  The A3/B5 column contains two ARRAY_REFs that
+     index foo[10] arrays, so is again comparable.  The sequence is
+     therefore:
+
+        A: [1, 3]  (i.e. [i].s.c)
+        B: [3, 5]  (i.e. [i].s.e)
+
+     Also look for sequences of component references whose access
+     functions are comparable and whose enclosing objects have the same
+     RECORD_TYPE.  Store this sequence in STRUCT_SEQ.  In the above
+     example, STRUCT_SEQ would be:
+
+        A: [1, 2]  (i.e. s.c)
+        B: [3, 4]  (i.e. s.e)  */
+  while (index_a < num_dimensions_a && index_b < num_dimensions_b)
+    {
+      /* REF_A and REF_B must be one of the component access types
+	 allowed by dr_analyze_indices.  */
+      gcc_checking_assert (access_fn_component_p (ref_a));
+      gcc_checking_assert (access_fn_component_p (ref_b));
+
+      /* Get the immediately-enclosing objects for REF_A and REF_B,
+	 i.e. the references *before* applying DR_ACCESS_FN (A, INDEX_A)
+	 and DR_ACCESS_FN (B, INDEX_B).  */
+      tree object_a = TREE_OPERAND (ref_a, 0);
+      tree object_b = TREE_OPERAND (ref_b, 0);
+
+      tree type_a = TREE_TYPE (object_a);
+      tree type_b = TREE_TYPE (object_b);
+      if (access_fn_components_comparable_p (ref_a, ref_b))
+	{
+	  /* This pair of component accesses is comparable for dependence
+	     analysis, so we can include DR_ACCESS_FN (A, INDEX_A) and
+	     DR_ACCESS_FN (B, INDEX_B) in the sequence.  */
+	  if (full_seq.start_a + full_seq.length != index_a
+	      || full_seq.start_b + full_seq.length != index_b)
+	    {
+	      /* The accesses don't extend the current sequence,
+		 so start a new one here.  */
+	      full_seq.start_a = index_a;
+	      full_seq.start_b = index_b;
+	      full_seq.length = 0;
+	    }
+
+	  /* Add this pair of references to the sequence.  */
+	  full_seq.length += 1;
+	  full_seq.object_a = object_a;
+	  full_seq.object_b = object_b;
+
+	  /* If the enclosing objects are structures (and thus have the
+	     same RECORD_TYPE), record the new sequence in STRUCT_SEQ.  */
+	  if (TREE_CODE (type_a) == RECORD_TYPE)
+	    struct_seq = full_seq;
+
+	  /* Move to the next containing reference for both A and B.  */
+	  ref_a = object_a;
+	  ref_b = object_b;
+	  index_a += 1;
+	  index_b += 1;
+	  continue;
+	}
+
+      /* Try to approach equal type sizes.  */
+      if (!COMPLETE_TYPE_P (type_a)
+	  || !COMPLETE_TYPE_P (type_b)
+	  || !tree_fits_uhwi_p (TYPE_SIZE_UNIT (type_a))
+	  || !tree_fits_uhwi_p (TYPE_SIZE_UNIT (type_b)))
+	break;
+
+      unsigned HOST_WIDE_INT size_a = tree_to_uhwi (TYPE_SIZE_UNIT (type_a));
+      unsigned HOST_WIDE_INT size_b = tree_to_uhwi (TYPE_SIZE_UNIT (type_b));
+      if (size_a <= size_b)
+	{
+	  index_a += 1;
+	  ref_a = object_a;
+	}
+      if (size_b <= size_a)
+	{
+	  index_b += 1;
+	  ref_b = object_b;
+	}
+    }
+
+  /* See whether FULL_SEQ ends at the base and whether the two bases
+     are equal.  We do not care about TBAA or alignment info so we can
+     use OEP_ADDRESS_OF to avoid false negatives.  */
+  tree base_a = DR_BASE_OBJECT (a);
+  tree base_b = DR_BASE_OBJECT (b);
+  bool same_base_p = (full_seq.start_a + full_seq.length == num_dimensions_a
+		      && full_seq.start_b + full_seq.length == num_dimensions_b
+		      && DR_UNCONSTRAINED_BASE (a) == DR_UNCONSTRAINED_BASE (b)
+		      && operand_equal_p (base_a, base_b, OEP_ADDRESS_OF)
+		      && types_compatible_p (TREE_TYPE (base_a),
+					     TREE_TYPE (base_b))
+		      && (!loop_nest.exists ()
+			  || (object_address_invariant_in_loop_p
+			      (loop_nest[0], base_a))));
+
+  /* If the bases are the same, we can include the base variation too.
+     E.g. the b accesses in:
+
+       for (int i = 0; i < n; ++i)
+         b[i + 4][0] = b[i][0];
+
+     have a definite dependence distance of 4, while for:
+
+       for (int i = 0; i < n; ++i)
+         a[i + 4][0] = b[i][0];
+
+     the dependence distance depends on the gap between a and b.
+
+     If the bases are different then we can only rely on the sequence
+     rooted at a structure access, since arrays are allowed to overlap
+     arbitrarily and change shape arbitrarily.  E.g. we treat this as
+     valid code:
+
+       int a[256];
+       ...
+       ((int (*)[4][3]) &a[1])[i][0] += ((int (*)[4][3]) &a[2])[i][0];
+
+     where two lvalues with the same int[4][3] type overlap, and where
+     both lvalues are distinct from the object's declared type.  */
+  if (same_base_p)
+    {
+      if (DR_UNCONSTRAINED_BASE (a))
+	full_seq.length += 1;
+    }
+  else
+    full_seq = struct_seq;
+
+  /* Punt if we didn't find a suitable sequence.  */
+  if (full_seq.length == 0)
+    {
+      DDR_ARE_DEPENDENT (res) = chrec_dont_know;
+      return res;
+    }
+
+  if (!same_base_p)
+    {
+      /* Partial overlap is possible for different bases when strict aliasing
+	 is not in effect.  It's also possible if either base involves a union
+	 access; e.g. for:
+
+	   struct s1 { int a[2]; };
+	   struct s2 { struct s1 b; int c; };
+	   struct s3 { int d; struct s1 e; };
+	   union u { struct s2 f; struct s3 g; } *p, *q;
+
+	 the s1 at "p->f.b" (base "p->f") partially overlaps the s1 at
+	 "p->g.e" (base "p->g") and might partially overlap the s1 at
+	 "q->g.e" (base "q->g").  */
+      if (!flag_strict_aliasing
+	  || ref_contains_union_access_p (full_seq.object_a)
+	  || ref_contains_union_access_p (full_seq.object_b))
 	{
 	  DDR_ARE_DEPENDENT (res) = chrec_dont_know;
 	  return res;
 	}
-      DDR_AFFINE_P (res) = true;
-      DDR_ARE_DEPENDENT (res) = NULL_TREE;
-      DDR_SUBSCRIPTS (res).create (DR_NUM_DIMENSIONS (a));
-      DDR_LOOP_NEST (res) = loop_nest;
-      DDR_INNER_LOOP (res) = 0;
-      DDR_SELF_REFERENCE (res) = true;
-      for (i = 0; i < DR_NUM_DIMENSIONS (a); i++)
-       {
-         struct subscript *subscript;
 
-         subscript = XNEW (struct subscript);
-         SUB_CONFLICTS_IN_A (subscript) = conflict_fn_not_known ();
-         SUB_CONFLICTS_IN_B (subscript) = conflict_fn_not_known ();
-         SUB_LAST_CONFLICT (subscript) = chrec_dont_know;
-         SUB_DISTANCE (subscript) = chrec_dont_know;
-         DDR_SUBSCRIPTS (res).safe_push (subscript);
-       }
-      return res;
-    }
-
-  /* If the references do not access the same object, we do not know
-     whether they alias or not.  We do not care about TBAA or alignment
-     info so we can use OEP_ADDRESS_OF to avoid false negatives.
-     But the accesses have to use compatible types as otherwise the
-     built indices would not match.  */
-  if (!operand_equal_p (DR_BASE_OBJECT (a), DR_BASE_OBJECT (b), OEP_ADDRESS_OF)
-      || !types_compatible_p (TREE_TYPE (DR_BASE_OBJECT (a)),
-			      TREE_TYPE (DR_BASE_OBJECT (b))))
-    {
-      DDR_ARE_DEPENDENT (res) = chrec_dont_know;
-      return res;
-    }
-
-  /* If the base of the object is not invariant in the loop nest, we cannot
-     analyze it.  TODO -- in fact, it would suffice to record that there may
-     be arbitrary dependences in the loops where the base object varies.  */
-  if ((loop_nest.exists ()
-       && !object_address_invariant_in_loop_p (loop_nest[0], DR_BASE_OBJECT (a)))
-      || DR_NUM_DIMENSIONS (a) == 0)
-    {
-      DDR_ARE_DEPENDENT (res) = chrec_dont_know;
-      return res;
-    }
-
-  /* If the number of dimensions of the access to not agree we can have
-     a pointer access to a component of the array element type and an
-     array access while the base-objects are still the same.  Punt.  */
-  if (DR_NUM_DIMENSIONS (a) != DR_NUM_DIMENSIONS (b))
-    {
-      DDR_ARE_DEPENDENT (res) = chrec_dont_know;
-      return res;
+      DDR_COULD_BE_INDEPENDENT_P (res) = true;
+      if (!loop_nest.exists ()
+	  || (object_address_invariant_in_loop_p (loop_nest[0],
+						  full_seq.object_a)
+	      && object_address_invariant_in_loop_p (loop_nest[0],
+						     full_seq.object_b)))
+	{
+	  DDR_OBJECT_A (res) = full_seq.object_a;
+	  DDR_OBJECT_B (res) = full_seq.object_b;
+	}
     }
 
   DDR_AFFINE_P (res) = true;
   DDR_ARE_DEPENDENT (res) = NULL_TREE;
-  DDR_SUBSCRIPTS (res).create (DR_NUM_DIMENSIONS (a));
+  DDR_SUBSCRIPTS (res).create (full_seq.length);
   DDR_LOOP_NEST (res) = loop_nest;
   DDR_INNER_LOOP (res) = 0;
   DDR_SELF_REFERENCE (res) = false;
 
-  for (i = 0; i < DR_NUM_DIMENSIONS (a); i++)
+  for (i = 0; i < full_seq.length; ++i)
     {
       struct subscript *subscript;
 
       subscript = XNEW (struct subscript);
+      SUB_ACCESS_FN (subscript, 0) = DR_ACCESS_FN (a, full_seq.start_a + i);
+      SUB_ACCESS_FN (subscript, 1) = DR_ACCESS_FN (b, full_seq.start_b + i);
       SUB_CONFLICTS_IN_A (subscript) = conflict_fn_not_known ();
       SUB_CONFLICTS_IN_B (subscript) = conflict_fn_not_known ();
       SUB_LAST_CONFLICT (subscript) = chrec_dont_know;
@@ -3839,14 +4119,15 @@ add_outer_distances (struct data_dependence_relation *ddr,
 }
 
 /* Return false when fail to represent the data dependence as a
-   distance vector.  INIT_B is set to true when a component has been
+   distance vector.  A_INDEX is the index of the first reference
+   (0 for DDR_A, 1 for DDR_B) and B_INDEX is the index of the
+   second reference.  INIT_B is set to true when a component has been
    added to the distance vector DIST_V.  INDEX_CARRY is then set to
    the index in DIST_V that carries the dependence.  */
 
 static bool
 build_classic_dist_vector_1 (struct data_dependence_relation *ddr,
-			     struct data_reference *ddr_a,
-			     struct data_reference *ddr_b,
+			     unsigned int a_index, unsigned int b_index,
 			     lambda_vector dist_v, bool *init_b,
 			     int *index_carry)
 {
@@ -3864,8 +4145,8 @@ build_classic_dist_vector_1 (struct data_dependence_relation *ddr,
 	  return false;
 	}
 
-      access_fn_a = DR_ACCESS_FN (ddr_a, i);
-      access_fn_b = DR_ACCESS_FN (ddr_b, i);
+      access_fn_a = SUB_ACCESS_FN (subscript, a_index);
+      access_fn_b = SUB_ACCESS_FN (subscript, b_index);
 
       if (TREE_CODE (access_fn_a) == POLYNOMIAL_CHREC
 	  && TREE_CODE (access_fn_b) == POLYNOMIAL_CHREC)
@@ -3925,10 +4206,11 @@ static bool
 constant_access_functions (const struct data_dependence_relation *ddr)
 {
   unsigned i;
+  subscript *sub;
 
-  for (i = 0; i < DDR_NUM_SUBSCRIPTS (ddr); i++)
-    if (!evolution_function_is_constant_p (DR_ACCESS_FN (DDR_A (ddr), i))
-	|| !evolution_function_is_constant_p (DR_ACCESS_FN (DDR_B (ddr), i)))
+  FOR_EACH_VEC_ELT (DDR_SUBSCRIPTS (ddr), i, sub)
+    if (!evolution_function_is_constant_p (SUB_ACCESS_FN (sub, 0))
+	|| !evolution_function_is_constant_p (SUB_ACCESS_FN (sub, 1)))
       return false;
 
   return true;
@@ -3991,10 +4273,11 @@ add_other_self_distances (struct data_dependence_relation *ddr)
   lambda_vector dist_v;
   unsigned i;
   int index_carry = DDR_NB_LOOPS (ddr);
+  subscript *sub;
 
-  for (i = 0; i < DDR_NUM_SUBSCRIPTS (ddr); i++)
+  FOR_EACH_VEC_ELT (DDR_SUBSCRIPTS (ddr), i, sub)
     {
-      tree access_fun = DR_ACCESS_FN (DDR_A (ddr), i);
+      tree access_fun = SUB_ACCESS_FN (sub, 0);
 
       if (TREE_CODE (access_fun) == POLYNOMIAL_CHREC)
 	{
@@ -4006,7 +4289,7 @@ add_other_self_distances (struct data_dependence_relation *ddr)
 		  return;
 		}
 
-	      access_fun = DR_ACCESS_FN (DDR_A (ddr), 0);
+	      access_fun = SUB_ACCESS_FN (DDR_SUBSCRIPT (ddr, 0), 0);
 
 	      if (TREE_CODE (CHREC_LEFT (access_fun)) == POLYNOMIAL_CHREC)
 		add_multivariate_self_dist (ddr, access_fun);
@@ -4077,6 +4360,23 @@ add_distance_for_zero_overlaps (struct data_dependence_relation *ddr)
     }
 }
 
+/* Return true when the DDR contains two data references that have the
+   same access functions.  */
+
+static inline bool
+same_access_functions (const struct data_dependence_relation *ddr)
+{
+  unsigned i;
+  subscript *sub;
+
+  FOR_EACH_VEC_ELT (DDR_SUBSCRIPTS (ddr), i, sub)
+    if (!eq_evolutions_p (SUB_ACCESS_FN (sub, 0),
+			  SUB_ACCESS_FN (sub, 1)))
+      return false;
+
+  return true;
+}
+
 /* Compute the classic per loop distance vector.  DDR is the data
    dependence relation to build a vector from.  Return false when fail
    to represent the data dependence as a distance vector.  */
@@ -4108,8 +4408,7 @@ build_classic_dist_vector (struct data_dependence_relation *ddr,
     }
 
   dist_v = lambda_vector_new (DDR_NB_LOOPS (ddr));
-  if (!build_classic_dist_vector_1 (ddr, DDR_A (ddr), DDR_B (ddr),
-				    dist_v, &init_b, &index_carry))
+  if (!build_classic_dist_vector_1 (ddr, 0, 1, dist_v, &init_b, &index_carry))
     return false;
 
   /* Save the distance vector if we initialized one.  */
@@ -4142,12 +4441,11 @@ build_classic_dist_vector (struct data_dependence_relation *ddr,
       if (!lambda_vector_lexico_pos (dist_v, DDR_NB_LOOPS (ddr)))
 	{
 	  lambda_vector save_v = lambda_vector_new (DDR_NB_LOOPS (ddr));
-	  if (!subscript_dependence_tester_1 (ddr, DDR_B (ddr), DDR_A (ddr),
-					      loop_nest))
+	  if (!subscript_dependence_tester_1 (ddr, 1, 0, loop_nest))
 	    return false;
 	  compute_subscript_distance (ddr);
-	  if (!build_classic_dist_vector_1 (ddr, DDR_B (ddr), DDR_A (ddr),
-					    save_v, &init_b, &index_carry))
+	  if (!build_classic_dist_vector_1 (ddr, 1, 0, save_v, &init_b,
+					    &index_carry))
 	    return false;
 	  save_dist_v (ddr, save_v);
 	  DDR_REVERSED_P (ddr) = true;
@@ -4183,12 +4481,10 @@ build_classic_dist_vector (struct data_dependence_relation *ddr,
 	    {
 	      lambda_vector opposite_v = lambda_vector_new (DDR_NB_LOOPS (ddr));
 
-	      if (!subscript_dependence_tester_1 (ddr, DDR_B (ddr),
-						  DDR_A (ddr), loop_nest))
+	      if (!subscript_dependence_tester_1 (ddr, 1, 0, loop_nest))
 		return false;
 	      compute_subscript_distance (ddr);
-	      if (!build_classic_dist_vector_1 (ddr, DDR_B (ddr), DDR_A (ddr),
-						opposite_v, &init_b,
+	      if (!build_classic_dist_vector_1 (ddr, 1, 0, opposite_v, &init_b,
 						&index_carry))
 		return false;
 
@@ -4267,13 +4563,13 @@ build_classic_dir_vector (struct data_dependence_relation *ddr)
     }
 }
 
-/* Helper function.  Returns true when there is a dependence between
-   data references DRA and DRB.  */
+/* Helper function.  Returns true when there is a dependence between the
+   data references.  A_INDEX is the index of the first reference (0 for
+   DDR_A, 1 for DDR_B) and B_INDEX is the index of the second reference.  */
 
 static bool
 subscript_dependence_tester_1 (struct data_dependence_relation *ddr,
-			       struct data_reference *dra,
-			       struct data_reference *drb,
+			       unsigned int a_index, unsigned int b_index,
 			       struct loop *loop_nest)
 {
   unsigned int i;
@@ -4285,8 +4581,8 @@ subscript_dependence_tester_1 (struct data_dependence_relation *ddr,
     {
       conflict_function *overlaps_a, *overlaps_b;
 
-      analyze_overlapping_iterations (DR_ACCESS_FN (dra, i),
-				      DR_ACCESS_FN (drb, i),
+      analyze_overlapping_iterations (SUB_ACCESS_FN (subscript, a_index),
+				      SUB_ACCESS_FN (subscript, b_index),
 				      &overlaps_a, &overlaps_b,
 				      &last_conflicts, loop_nest);
 
@@ -4335,7 +4631,7 @@ static void
 subscript_dependence_tester (struct data_dependence_relation *ddr,
 			     struct loop *loop_nest)
 {
-  if (subscript_dependence_tester_1 (ddr, DDR_A (ddr), DDR_B (ddr), loop_nest))
+  if (subscript_dependence_tester_1 (ddr, 0, 1, loop_nest))
     dependence_stats.num_dependence_dependent++;
 
   compute_subscript_distance (ddr);
@@ -4485,6 +4781,11 @@ struct data_ref_loc
 
   /* True if the memory reference is read.  */
   bool is_read;
+
+  /* True if the data reference is conditional within the containing
+     statement, i.e. if it might not occur even when the statement
+     is executed and runs to completion.  */
+  bool is_conditional_in_stmt;
 };
 
 
@@ -4551,6 +4852,7 @@ get_references_in_stmt (gimple *stmt, vec<data_ref_loc, va_heap> *references)
 	{
 	  ref.ref = op1;
 	  ref.is_read = true;
+	  ref.is_conditional_in_stmt = false;
 	  references->safe_push (ref);
 	}
     }
@@ -4578,6 +4880,7 @@ get_references_in_stmt (gimple *stmt, vec<data_ref_loc, va_heap> *references)
 	      type = TREE_TYPE (gimple_call_arg (stmt, 3));
 	    if (TYPE_ALIGN (type) != align)
 	      type = build_aligned_type (type, align);
+	    ref.is_conditional_in_stmt = true;
 	    ref.ref = fold_build2 (MEM_REF, type, gimple_call_arg (stmt, 0),
 				   ptr);
 	    references->safe_push (ref);
@@ -4597,6 +4900,7 @@ get_references_in_stmt (gimple *stmt, vec<data_ref_loc, va_heap> *references)
 	    {
 	      ref.ref = op1;
 	      ref.is_read = true;
+	      ref.is_conditional_in_stmt = false;
 	      references->safe_push (ref);
 	    }
 	}
@@ -4610,6 +4914,7 @@ get_references_in_stmt (gimple *stmt, vec<data_ref_loc, va_heap> *references)
     {
       ref.ref = op0;
       ref.is_read = false;
+      ref.is_conditional_in_stmt = false;
       references->safe_push (ref);
     }
   return clobbers_memory;
@@ -4641,17 +4946,6 @@ loop_nest_has_data_refs (loop_p loop)
 	}
     }
   free (bbs);
-
-  if (loop->inner)
-    {
-      loop = loop->inner;
-      while (loop)
-	{
-	  if (loop_nest_has_data_refs (loop))
-	    return true;
-	  loop = loop->next;
-	}
-    }
   return false;
 }
 
@@ -4674,8 +4968,9 @@ find_data_references_in_stmt (struct loop *nest, gimple *stmt,
 
   FOR_EACH_VEC_ELT (references, i, ref)
     {
-      dr = create_data_ref (nest, loop_containing_stmt (stmt),
-			    ref->ref, stmt, ref->is_read);
+      dr = create_data_ref (nest ? loop_preheader_edge (nest) : NULL,
+			    loop_containing_stmt (stmt), ref->ref,
+			    stmt, ref->is_read, ref->is_conditional_in_stmt);
       gcc_assert (dr != NULL);
       datarefs->safe_push (dr);
     }
@@ -4690,7 +4985,7 @@ find_data_references_in_stmt (struct loop *nest, gimple *stmt,
    should be analyzed.  */
 
 bool
-graphite_find_data_references_in_stmt (loop_p nest, loop_p loop, gimple *stmt,
+graphite_find_data_references_in_stmt (edge nest, loop_p loop, gimple *stmt,
 				       vec<data_reference_p> *datarefs)
 {
   unsigned i;
@@ -4704,7 +4999,8 @@ graphite_find_data_references_in_stmt (loop_p nest, loop_p loop, gimple *stmt,
 
   FOR_EACH_VEC_ELT (references, i, ref)
     {
-      dr = create_data_ref (nest, loop, ref->ref, stmt, ref->is_read);
+      dr = create_data_ref (nest, loop, ref->ref, stmt, ref->is_read,
+			    ref->is_conditional_in_stmt);
       gcc_assert (dr != NULL);
       datarefs->safe_push (dr);
     }

@@ -58,6 +58,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "gomp-constants.h"
 #include "gimple-pretty-print.h"
 #include "hsa-common.h"
+#include "stringpool.h"
+#include "attribs.h"
 
 /* Lowering of OMP parallel and workshare constructs proceeds in two
    phases.  The first phase scans the function looking for OMP statements
@@ -796,6 +798,8 @@ omp_copy_decl (tree var, copy_body_data *cb)
 
   if (TREE_CODE (var) == LABEL_DECL)
     {
+      if (FORCED_LABEL (var) || DECL_NONLOCAL (var))
+	return var;
       new_var = create_artificial_label (DECL_SOURCE_LOCATION (var));
       DECL_CONTEXT (new_var) = current_function_decl;
       insert_decl_map (&ctx->cb, var, new_var);
@@ -1622,6 +1626,14 @@ create_omp_child_function (omp_context *ctx, bool task_copy)
   DECL_CONTEXT (decl) = NULL_TREE;
   DECL_INITIAL (decl) = make_node (BLOCK);
   BLOCK_SUPERCONTEXT (DECL_INITIAL (decl)) = decl;
+  DECL_ATTRIBUTES (decl) = DECL_ATTRIBUTES (current_function_decl);
+  DECL_FUNCTION_SPECIFIC_OPTIMIZATION (decl)
+    = DECL_FUNCTION_SPECIFIC_OPTIMIZATION (current_function_decl);
+  DECL_FUNCTION_SPECIFIC_TARGET (decl)
+    = DECL_FUNCTION_SPECIFIC_TARGET (current_function_decl);
+  DECL_FUNCTION_VERSIONED (decl)
+    = DECL_FUNCTION_VERSIONED (current_function_decl);
+
   if (omp_maybe_offloaded_ctx (ctx))
     {
       cgraph_node::get_create (decl)->offloadable = 1;
@@ -3069,7 +3081,7 @@ scan_omp_1_op (tree *tp, int *walk_subtrees, void *data)
 	      if (tem != TREE_TYPE (t))
 		{
 		  if (TREE_CODE (t) == INTEGER_CST)
-		    *tp = wide_int_to_tree (tem, t);
+		    *tp = wide_int_to_tree (tem, wi::to_wide (t));
 		  else
 		    TREE_TYPE (t) = tem;
 		}
@@ -3438,24 +3450,24 @@ omp_clause_aligned_alignment (tree clause)
 
   /* Otherwise return implementation defined alignment.  */
   unsigned int al = 1;
-  machine_mode mode, vmode;
+  opt_scalar_mode mode_iter;
   int vs = targetm.vectorize.autovectorize_vector_sizes ();
   if (vs)
     vs = 1 << floor_log2 (vs);
   static enum mode_class classes[]
     = { MODE_INT, MODE_VECTOR_INT, MODE_FLOAT, MODE_VECTOR_FLOAT };
   for (int i = 0; i < 4; i += 2)
-    for (mode = GET_CLASS_NARROWEST_MODE (classes[i]);
-	 mode != VOIDmode;
-	 mode = GET_MODE_WIDER_MODE (mode))
+    /* The for loop above dictates that we only walk through scalar classes.  */
+    FOR_EACH_MODE_IN_CLASS (mode_iter, classes[i])
       {
-	vmode = targetm.vectorize.preferred_simd_mode (mode);
+	scalar_mode mode = mode_iter.require ();
+	machine_mode vmode = targetm.vectorize.preferred_simd_mode (mode);
 	if (GET_MODE_CLASS (vmode) != classes[i + 1])
 	  continue;
 	while (vs
 	       && GET_MODE_SIZE (vmode) < vs
-	       && GET_MODE_2XWIDER_MODE (vmode) != VOIDmode)
-	  vmode = GET_MODE_2XWIDER_MODE (vmode);
+	       && GET_MODE_2XWIDER_MODE (vmode).exists ())
+	  vmode = GET_MODE_2XWIDER_MODE (vmode).require ();
 
 	tree type = lang_hooks.types.type_for_mode (mode, 1);
 	if (type == NULL_TREE || TYPE_MODE (type) != mode)
@@ -5055,8 +5067,10 @@ lower_oacc_reductions (location_t loc, tree clauses, tree level, bool inner,
 	  v1 = v2 = v3 = var;
 
 	/* Determine position in reduction buffer, which may be used
-	   by target.  */
-	machine_mode mode = TYPE_MODE (TREE_TYPE (var));
+	   by target.  The parser has ensured that this is not a
+	   variable-sized type.  */
+	fixed_size_mode mode
+	  = as_a <fixed_size_mode> (TYPE_MODE (TREE_TYPE (var)));
 	unsigned align = GET_MODE_ALIGNMENT (mode) /  BITS_PER_UNIT;
 	offset = (offset + align - 1) & ~(align - 1);
 	tree off = build_int_cst (sizetype, offset);
@@ -6360,14 +6374,14 @@ lower_omp_ordered_clauses (gimple_stmt_iterator *gsi_p, gomp_ordered *ord_stmt,
 	  tree itype = TREE_TYPE (TREE_VALUE (vec));
 	  if (POINTER_TYPE_P (itype))
 	    itype = sizetype;
-	  wide_int offset = wide_int::from (TREE_PURPOSE (vec),
+	  wide_int offset = wide_int::from (wi::to_wide (TREE_PURPOSE (vec)),
 					    TYPE_PRECISION (itype),
 					    TYPE_SIGN (itype));
 
 	  /* Ignore invalid offsets that are not multiples of the step.  */
-	  if (!wi::multiple_of_p
-	      (wi::abs (offset), wi::abs ((wide_int) fd.loops[i].step),
-	       UNSIGNED))
+	  if (!wi::multiple_of_p (wi::abs (offset),
+				  wi::abs (wi::to_wide (fd.loops[i].step)),
+				  UNSIGNED))
 	    {
 	      warning_at (OMP_CLAUSE_LOCATION (c), 0,
 			  "ignoring sink clause with offset that is not "
@@ -6919,10 +6933,14 @@ lower_omp_for (gimple_stmt_iterator *gsi_p, omp_context *ctx)
       rhs_p = gimple_omp_for_initial_ptr (stmt, i);
       if (!is_gimple_min_invariant (*rhs_p))
 	*rhs_p = get_formal_tmp_var (*rhs_p, &body);
+      else if (TREE_CODE (*rhs_p) == ADDR_EXPR)
+	recompute_tree_invariant_for_addr_expr (*rhs_p);
 
       rhs_p = gimple_omp_for_final_ptr (stmt, i);
       if (!is_gimple_min_invariant (*rhs_p))
 	*rhs_p = get_formal_tmp_var (*rhs_p, &body);
+      else if (TREE_CODE (*rhs_p) == ADDR_EXPR)
+	recompute_tree_invariant_for_addr_expr (*rhs_p);
 
       rhs_p = &TREE_OPERAND (gimple_omp_for_incr (stmt, i), 1);
       if (!is_gimple_min_invariant (*rhs_p))
@@ -9083,7 +9101,7 @@ diagnose_sb_0 (gimple_stmt_iterator *gsi_p,
     }
   if (kind == NULL)
     {
-      gcc_checking_assert (flag_openmp);
+      gcc_checking_assert (flag_openmp || flag_openmp_simd);
       kind = "OpenMP";
     }
 
@@ -9343,7 +9361,7 @@ public:
   /* opt_pass methods: */
   virtual bool gate (function *)
   {
-    return flag_cilkplus || flag_openacc || flag_openmp;
+    return flag_cilkplus || flag_openacc || flag_openmp || flag_openmp_simd;
   }
   virtual unsigned int execute (function *)
     {

@@ -179,7 +179,7 @@ fixcontext(ucontext_t* c)
 // So we make the field larger in runtime2.go and pick an appropriate
 // offset within the field here.
 static ucontext_t*
-ucontext_arg(uintptr* go_ucontext)
+ucontext_arg(uintptr_t* go_ucontext)
 {
 	uintptr_t p = (uintptr_t)go_ucontext;
 	size_t align = __alignof__(ucontext_t);
@@ -375,6 +375,8 @@ bool	runtime_isarchive;
 
 extern void kickoff(void)
   __asm__(GOSYM_PREFIX "runtime.kickoff");
+extern void minit(void)
+  __asm__(GOSYM_PREFIX "runtime.minit");
 extern void mstart1(void)
   __asm__(GOSYM_PREFIX "runtime.mstart1");
 extern void stopm(void)
@@ -475,6 +477,10 @@ runtime_mstart(void *arg)
 
 	gp->entry = nil;
 	gp->param = nil;
+
+	// We have to call minit before we call getcontext,
+	// because getcontext will copy the signal mask.
+	minit();
 
 	initcontext();
 

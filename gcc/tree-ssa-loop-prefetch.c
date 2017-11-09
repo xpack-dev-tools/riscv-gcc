@@ -1632,8 +1632,9 @@ determine_loop_nest_reuse (struct loop *loop, struct mem_ref_group *refs,
   for (gr = refs; gr; gr = gr->next)
     for (ref = gr->refs; ref; ref = ref->next)
       {
-	dr = create_data_ref (nest, loop_containing_stmt (ref->stmt),
-			      ref->mem, ref->stmt, !ref->write_p);
+	dr = create_data_ref (loop_preheader_edge (nest),
+			      loop_containing_stmt (ref->stmt),
+			      ref->mem, ref->stmt, !ref->write_p, false);
 
 	if (dr)
 	  {
@@ -1668,6 +1669,7 @@ determine_loop_nest_reuse (struct loop *loop, struct mem_ref_group *refs,
       refb = (struct mem_ref *) DDR_B (dep)->aux;
 
       if (DDR_ARE_DEPENDENT (dep) == chrec_dont_know
+	  || DDR_COULD_BE_INDEPENDENT_P (dep)
 	  || DDR_NUM_DIST_VECTS (dep) == 0)
 	{
 	  /* If the dependence cannot be analyzed, assume that there might be

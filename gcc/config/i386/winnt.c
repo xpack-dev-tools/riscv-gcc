@@ -30,6 +30,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "memmodel.h"
 #include "tm_p.h"
 #include "stringpool.h"
+#include "attribs.h"
 #include "emit-rtl.h"
 #include "cgraph.h"
 #include "lto-streamer.h"
@@ -1214,8 +1215,7 @@ void
 i386_pe_start_function (FILE *f, const char *name, tree decl)
 {
   i386_pe_maybe_record_exported_symbol (decl, name, 0);
-  if (write_symbols != SDB_DEBUG)
-    i386_pe_declare_function_type (f, name, TREE_PUBLIC (decl));
+  i386_pe_declare_function_type (f, name, TREE_PUBLIC (decl));
   /* In case section was altered by debugging output.  */
   if (decl != NULL_TREE)
     switch_to_section (function_section (decl));

@@ -1310,7 +1310,8 @@
    (set_attr "mode" "HI")])
 
 ;; HImode constant generation; see riscv_move_integer for details.
-;; si+si->hi without truncation is legal because of TRULY_NOOP_TRUNCATION.
+;; si+si->hi without truncation is legal because of
+;; TARGET_TRULY_NOOP_TRUNCATION.
 
 (define_insn "*add<mode>hi3"
   [(set (match_operand:HI            0 "register_operand" "=r,r")
@@ -1435,6 +1436,19 @@
   DONE;
 })
 
+(define_expand "movmemsi"
+  [(parallel [(set (match_operand:BLK 0 "general_operand")
+		   (match_operand:BLK 1 "general_operand"))
+	      (use (match_operand:SI 2 ""))
+	      (use (match_operand:SI 3 "const_int_operand"))])]
+  ""
+{
+  if (riscv_expand_block_move (operands[0], operands[1], operands[2]))
+    DONE;
+  else
+    FAIL;
+})
+
 ;; Expand in-line code to clear the instruction cache between operand[0] and
 ;; operand[1].
 (define_expand "clear_cache"
@@ -1442,7 +1456,13 @@
    (match_operand 1 "pmode_register_operand")]
   ""
 {
+#ifdef ICACHE_FLUSH_FUNC
+  emit_library_call (gen_rtx_SYMBOL_REF (Pmode, ICACHE_FLUSH_FUNC),
+		     LCT_NORMAL, VOIDmode, 3, operands[0], Pmode,
+		     operands[1], Pmode, const0_rtx, Pmode);
+#else
   emit_insn (gen_fence_i ());
+#endif
   DONE;
 })
 
@@ -1506,6 +1526,20 @@
     operands[2] = GEN_INT (INTVAL (operands[2]) & 0x1f);
 
   return "<insn>%i2w\t%0,%1,%2";
+}
+  [(set_attr "type" "shift")
+   (set_attr "mode" "SI")])
+
+(define_insn "*lshrsi3_zero_extend"
+  [(set (match_operand:DI                   0 "register_operand" "=r")
+	(zero_extend:DI
+	    (lshiftrt:SI (match_operand:SI 1 "register_operand" " r")
+			  (match_operand:SI 2 "const_int_operand"))))]
+  "TARGET_64BIT && (INTVAL (operands[2]) & 0x1f) > 0"
+{
+  operands[2] = GEN_INT (INTVAL (operands[2]) & 0x1f);
+
+  return "srlw\t%0,%1,%2";
 }
   [(set_attr "type" "shift")
    (set_attr "mode" "SI")])

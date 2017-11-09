@@ -1550,9 +1550,6 @@ record_invariant (struct ivopts_data *data, tree op, bool nonlinear_use)
   bitmap_set_bit (data->relevant, SSA_NAME_VERSION (op));
 }
 
-static tree
-strip_offset (tree expr, unsigned HOST_WIDE_INT *offset);
-
 /* Record a group of TYPE.  */
 
 static struct iv_group *
@@ -2160,8 +2157,8 @@ constant_multiple_of (tree top, tree bot, widest_int *mul)
       if (TREE_CODE (bot) != INTEGER_CST)
 	return false;
 
-      p0 = widest_int::from (top, SIGNED);
-      p1 = widest_int::from (bot, SIGNED);
+      p0 = widest_int::from (wi::to_wide (top), SIGNED);
+      p1 = widest_int::from (wi::to_wide (bot), SIGNED);
       if (p1 == 0)
 	return false;
       *mul = wi::sext (wi::divmod_trunc (p0, p1, SIGNED, &res), precision);
@@ -2863,7 +2860,7 @@ strip_offset_1 (tree expr, bool inside_addr, bool top_compref,
 
 /* Strips constant offsets from EXPR and stores them to OFFSET.  */
 
-static tree
+tree
 strip_offset (tree expr, unsigned HOST_WIDE_INT *offset)
 {
   HOST_WIDE_INT off;
@@ -3140,7 +3137,7 @@ add_autoinc_candidates (struct ivopts_data *data, tree base, tree step,
      statement.  */
   if (use_bb->loop_father != data->current_loop
       || !dominated_by_p (CDI_DOMINATORS, data->current_loop->latch, use_bb)
-      || stmt_could_throw_p (use->stmt)
+      || stmt_can_throw_internal (use->stmt)
       || !cst_and_fits_in_hwi (step))
     return;
 
@@ -3960,7 +3957,7 @@ adjust_setup_cost (struct ivopts_data *data, unsigned cost,
    the cost in COST.  */
 
 static bool
-get_shiftadd_cost (tree expr, machine_mode mode, comp_cost cost0,
+get_shiftadd_cost (tree expr, scalar_int_mode mode, comp_cost cost0,
 		   comp_cost cost1, tree mult, bool speed, comp_cost *cost)
 {
   comp_cost res;
@@ -4011,6 +4008,7 @@ force_expr_to_var_cost (tree expr, bool speed)
   tree op0, op1;
   comp_cost cost0, cost1, cost;
   machine_mode mode;
+  scalar_int_mode int_mode;
 
   if (!costs_initialized)
     {
@@ -4133,8 +4131,9 @@ force_expr_to_var_cost (tree expr, bool speed)
 	    mult = op0;
 
 	  if (mult != NULL_TREE
+	      && is_a <scalar_int_mode> (mode, &int_mode)
 	      && cst_and_fits_in_hwi (TREE_OPERAND (mult, 1))
-	      && get_shiftadd_cost (expr, mode, cost0, cost1, mult,
+	      && get_shiftadd_cost (expr, int_mode, cost0, cost1, mult,
 				    speed, &sa_cost))
 	    return sa_cost;
 	}
@@ -4458,8 +4457,8 @@ get_address_cost (struct ivopts_data *data, struct iv_use *use,
 static comp_cost
 get_scaled_computation_cost_at (ivopts_data *data, gimple *at, comp_cost cost)
 {
-   int loop_freq = data->current_loop->header->frequency;
-   int bb_freq = gimple_bb (at)->frequency;
+   int loop_freq = data->current_loop->header->count.to_frequency (cfun);
+   int bb_freq = gimple_bb (at)->count.to_frequency (cfun);
    if (loop_freq != 0)
      {
        gcc_assert (cost.scratch <= cost.cost);
@@ -5284,13 +5283,13 @@ set_autoinc_for_original_candidates (struct ivopts_data *data)
 static void
 relate_compare_use_with_all_cands (struct ivopts_data *data)
 {
-  unsigned i, max_id = data->vcands.length () - 1;
+  unsigned i, count = data->vcands.length ();
   for (i = 0; i < data->vgroups.length (); i++)
     {
       struct iv_group *group = data->vgroups[i];
 
       if (group->type == USE_COMPARE)
-	bitmap_set_range (group->related_cands, 0, max_id);
+	bitmap_set_range (group->related_cands, 0, count);
     }
 }
 

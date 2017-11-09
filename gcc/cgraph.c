@@ -61,6 +61,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-chkp.h"
 #include "context.h"
 #include "gimplify.h"
+#include "stringpool.h"
+#include "attribs.h"
 
 /* FIXME: Only for PROP_loops, but cgraph shouldn't have to know about this.  */
 #include "tree-pass.h"
@@ -188,30 +190,34 @@ cgraph_node::insert_new_function_version (void)
   return version_info_node;
 }
 
-/* Remove the cgraph_function_version_info and cgraph_node for DECL.  This
-   DECL is a duplicate declaration.  */
-void
-cgraph_node::delete_function_version (tree decl)
+/* Remove the cgraph_function_version_info node given by DECL_V.  */
+static void
+delete_function_version (cgraph_function_version_info *decl_v)
 {
-  cgraph_node *decl_node = cgraph_node::get (decl);
-  cgraph_function_version_info *decl_v = NULL;
-
-  if (decl_node == NULL)
-    return;
-
-  decl_v = decl_node->function_version ();
-
   if (decl_v == NULL)
     return;
 
   if (decl_v->prev != NULL)
-   decl_v->prev->next = decl_v->next;
+    decl_v->prev->next = decl_v->next;
 
   if (decl_v->next != NULL)
     decl_v->next->prev = decl_v->prev;
 
   if (cgraph_fnver_htab != NULL)
     cgraph_fnver_htab->remove_elt (decl_v);
+}
+
+/* Remove the cgraph_function_version_info and cgraph_node for DECL.  This
+   DECL is a duplicate declaration.  */
+void
+cgraph_node::delete_function_version_by_decl (tree decl)
+{
+  cgraph_node *decl_node = cgraph_node::get (decl);
+
+  if (decl_node == NULL)
+    return;
+
+  delete_function_version (decl_node->function_version ());
 
   decl_node->remove ();
 }
@@ -582,10 +588,11 @@ cgraph_node *
 cgraph_node::create_same_body_alias (tree alias, tree decl)
 {
   cgraph_node *n;
-#ifndef ASM_OUTPUT_DEF
+
   /* If aliases aren't supported by the assembler, fail.  */
-  return NULL;
-#endif
+  if (!TARGET_SUPPORTS_ALIASES)
+    return NULL;
+
   /* Langhooks can create same body aliases of symbols not defined.
      Those are useless. Drop them on the floor.  */
   if (symtab->global_info_ready)
@@ -600,7 +607,7 @@ cgraph_node::create_same_body_alias (tree alias, tree decl)
 
 /* Add thunk alias into callgraph.  The alias declaration is ALIAS and it
    aliases DECL with an adjustments made into the first parameter.
-   See comments in thunk_adjust for detail on the parameters.  */
+   See comments in struct cgraph_thunk_info for detail on the parameters.  */
 
 cgraph_node *
 cgraph_node::create_thunk (tree alias, tree, bool this_adjusting,
@@ -616,13 +623,17 @@ cgraph_node::create_thunk (tree alias, tree, bool this_adjusting,
     node->reset ();
   else
     node = cgraph_node::create (alias);
-  gcc_checking_assert (!virtual_offset
-		       || wi::eq_p (virtual_offset, virtual_value));
+
+  /* Make sure that if VIRTUAL_OFFSET is in sync with VIRTUAL_VALUE.  */
+  gcc_checking_assert (virtual_offset
+		       ? virtual_value == wi::to_wide (virtual_offset)
+		       : virtual_value == 0);
+
   node->thunk.fixed_offset = fixed_offset;
-  node->thunk.this_adjusting = this_adjusting;
   node->thunk.virtual_value = virtual_value;
-  node->thunk.virtual_offset_p = virtual_offset != NULL;
   node->thunk.alias = real_alias;
+  node->thunk.this_adjusting = this_adjusting;
+  node->thunk.virtual_offset_p = virtual_offset != NULL;
   node->thunk.thunk_p = true;
   node->definition = true;
 
@@ -851,7 +862,7 @@ symbol_table::create_edge (cgraph_node *caller, cgraph_node *callee,
   edge->next_callee = NULL;
   edge->lto_stmt_uid = 0;
 
-  edge->count = count;
+  edge->count = count.ipa ();
   edge->frequency = freq;
   gcc_checking_assert (freq >= 0);
   gcc_checking_assert (freq <= CGRAPH_FREQ_MAX);
@@ -1297,7 +1308,7 @@ cgraph_edge::redirect_call_stmt_to_callee (void)
 	  /* We are producing the final function body and will throw away the
 	     callgraph edges really soon.  Reset the counts/frequencies to
 	     keep verifier happy in the case of roundoff errors.  */
-	  e->count = gimple_bb (e->call_stmt)->count;
+	  e->count = gimple_bb (e->call_stmt)->count.ipa ();
 	  e->frequency = compute_call_stmt_bb_frequency
 			  (e->caller->decl, gimple_bb (e->call_stmt));
 	}
@@ -1327,7 +1338,7 @@ cgraph_edge::redirect_call_stmt_to_callee (void)
 	    prob = profile_probability::even ();
 	  new_stmt = gimple_ic (e->call_stmt,
 				dyn_cast<cgraph_node *> (ref->referred),
-				prob, e->count, e->count + e2->count);
+				prob);
 	  e->speculative = false;
 	  e->caller->set_call_stmt_including_clones (e->call_stmt, new_stmt,
 						     false);
@@ -1633,7 +1644,7 @@ cgraph_update_edges_for_call_stmt_node (cgraph_node *node,
 	  /* Otherwise remove edge and create new one; we can't simply redirect
 	     since function has changed, so inline plan and other information
 	     attached to edge is invalid.  */
-	  count = e->count;
+	  count = e->count.ipa ();
 	  frequency = e->frequency;
  	  if (e->indirect_unknown_callee || e->inline_failed)
 	    e->remove ();
@@ -1644,7 +1655,7 @@ cgraph_update_edges_for_call_stmt_node (cgraph_node *node,
 	{
 	  /* We are seeing new direct call; compute profile info based on BB.  */
 	  basic_block bb = gimple_bb (new_stmt);
-	  count = bb->count;
+	  count = bb->count.ipa ();
 	  frequency = compute_call_stmt_bb_frequency (current_function_decl,
 						      bb);
 	}
@@ -1837,6 +1848,7 @@ cgraph_node::remove (void)
   remove_callers ();
   remove_callees ();
   ipa_transforms_to_apply.release ();
+  delete_function_version (function_version ());
 
   /* Incremental inlining access removed nodes stored in the postorder list.
      */
@@ -2518,6 +2530,53 @@ cgraph_node::set_nothrow_flag (bool nothrow)
   return changed;
 }
 
+/* Worker to set malloc flag.  */
+static void
+set_malloc_flag_1 (cgraph_node *node, bool malloc_p, bool *changed)
+{
+  if (malloc_p && !DECL_IS_MALLOC (node->decl))
+    {
+      DECL_IS_MALLOC (node->decl) = true;
+      *changed = true;
+    }
+
+  ipa_ref *ref;
+  FOR_EACH_ALIAS (node, ref)
+    {
+      cgraph_node *alias = dyn_cast<cgraph_node *> (ref->referring);
+      if (!malloc_p || alias->get_availability () > AVAIL_INTERPOSABLE)
+	set_malloc_flag_1 (alias, malloc_p, changed);
+    }
+
+  for (cgraph_edge *e = node->callers; e; e = e->next_caller)
+    if (e->caller->thunk.thunk_p
+	&& (!malloc_p || e->caller->get_availability () > AVAIL_INTERPOSABLE))
+      set_malloc_flag_1 (e->caller, malloc_p, changed);
+}
+
+/* Set DECL_IS_MALLOC on NODE's decl and on NODE's aliases if any.  */
+
+bool
+cgraph_node::set_malloc_flag (bool malloc_p)
+{
+  bool changed = false;
+
+  if (!malloc_p || get_availability () > AVAIL_INTERPOSABLE)
+    set_malloc_flag_1 (this, malloc_p, &changed);
+  else
+    {
+      ipa_ref *ref;
+
+      FOR_EACH_ALIAS (this, ref)
+	{
+	  cgraph_node *alias = dyn_cast<cgraph_node *> (ref->referring);
+	  if (!malloc_p || alias->get_availability () > AVAIL_INTERPOSABLE)
+	    set_malloc_flag_1 (alias, malloc_p, &changed);
+	}
+    }
+  return changed;
+}
+
 /* Worker to set_const_flag.  */
 
 static void
@@ -3023,9 +3082,14 @@ bool
 cgraph_edge::verify_count_and_frequency ()
 {
   bool error_found = false;
-  if (count < 0)
+  if (!count.verify ())
     {
-      error ("caller edge count is negative");
+      error ("caller edge count invalid");
+      error_found = true;
+    }
+  if (count.initialized_p () && !(count.ipa () == count))
+    {
+      error ("caller edge count is local");
       error_found = true;
     }
   if (frequency < 0)
@@ -3124,9 +3188,14 @@ cgraph_node::verify_node (void)
 	       identifier_to_locale (e->callee->name ()));
 	error_found = true;
       }
-  if (count < 0)
+  if (!count.verify ())
     {
-      error ("execution count is negative");
+      error ("cgraph count invalid");
+      error_found = true;
+    }
+  if (count.initialized_p () && !(count.ipa () == count))
+    {
+      error ("cgraph count is local");
       error_found = true;
     }
   if (global.inlined_to && same_comdat_group)
@@ -3210,7 +3279,9 @@ cgraph_node::verify_node (void)
     {
       if (e->verify_count_and_frequency ())
 	error_found = true;
+      /* FIXME: re-enable once cgraph is converted to counts.  */
       if (gimple_has_body_p (e->caller->decl)
+	  && 0
 	  && !e->caller->global.inlined_to
 	  && !e->speculative
 	  /* Optimized out calls are redirected to __builtin_unreachable.  */
@@ -3233,9 +3304,11 @@ cgraph_node::verify_node (void)
     {
       if (e->verify_count_and_frequency ())
 	error_found = true;
+      /* FIXME: re-enable once cgraph is converted to counts.  */
       if (gimple_has_body_p (e->caller->decl)
 	  && !e->caller->global.inlined_to
 	  && !e->speculative
+	  && 0
 	  && (e->frequency
 	      != compute_call_stmt_bb_frequency (e->caller->decl,
 						 gimple_bb (e->call_stmt))))

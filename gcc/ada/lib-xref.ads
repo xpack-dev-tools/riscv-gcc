@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1998-2016, Free Software Foundation, Inc.         --
+--          Copyright (C) 1998-2017, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -26,9 +26,7 @@
 --  This package contains for collecting and outputting cross-reference
 --  information.
 
-with Einfo;           use Einfo;
-with Lib.Util;        use Lib.Util;
-with Put_SPARK_Xrefs;
+with Einfo; use Einfo;
 
 package Lib.Xref is
 
@@ -611,7 +609,8 @@ package Lib.Xref is
      Table_Name           => "Name_Deferred_References");
 
    procedure Process_Deferred_References;
-   --  This procedure is called from Frontend to process these table entries
+   --  This procedure is called from Frontend to process these table entries.
+   --  It is also called from Sem_Warn.
 
    function Has_Deferred_Reference (Ent : Entity_Id) return Boolean;
    --  Determine whether arbitrary entity Ent has a pending reference in order
@@ -645,20 +644,6 @@ package Lib.Xref is
       --  Collect SPARK cross-reference information from library units (for
       --  files and scopes) and from shared cross-references. Fill in the
       --  tables in library package called SPARK_Xrefs.
-
-      procedure Output_SPARK_Xrefs is new Put_SPARK_Xrefs;
-      --  Output SPARK cross-reference information to the ALI files, based on
-      --  the information collected in the tables in library package called
-      --  SPARK_Xrefs, and using routines in Lib.Util.
-
-      generic
-         with procedure Process (N : Node_Id) is <>;
-      procedure Traverse_Compilation_Unit
-        (CU           : Node_Id;
-         Inside_Stubs : Boolean);
-      --  Call Process on all declarations within compilation unit CU. If
-      --  Inside_Stubs is True, then the body of stubs is also traversed.
-      --  Generic declarations are ignored.
 
    end SPARK_Specific;
 

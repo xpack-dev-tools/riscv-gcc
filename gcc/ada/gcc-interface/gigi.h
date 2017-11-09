@@ -312,9 +312,9 @@ extern void post_error_ne_tree (const char *msg, Node_Id node, Entity_Id ent,
 extern void post_error_ne_tree_2 (const char *msg, Node_Id node, Entity_Id ent,
                                   tree t, int num);
 
-/* Return a label to branch to for the exception type in KIND or NULL_TREE
+/* Return a label to branch to for the exception type in KIND or Empty
    if none.  */
-extern tree get_exception_label (char kind);
+extern Entity_Id get_exception_label (char kind);
 
 /* If nonzero, pretend we are allocating at global level.  */
 extern int force_global;
@@ -423,7 +423,8 @@ enum standard_datatypes
   ADT_all_others_decl,
   ADT_unhandled_others_decl,
 
-  ADT_LAST};
+  ADT_LAST
+};
 
 /* Define kind of exception information associated with raise statements.  */
 enum exception_info_kind
@@ -998,7 +999,7 @@ extern int fp_size_to_prec (int size);
    from the parameter association for the instantiation of a generic.  We do
    not want to emit source location for them: the code generated for their
    initialization is likely to disturb debugging.  */
-extern bool renaming_from_generic_instantiation_p (Node_Id gnat_node);
+extern bool renaming_from_instantiation_p (Node_Id gnat_node);
 
 /* Try to process all nodes in the deferred context queue.  Keep in the queue
    the ones that cannot be processed yet, remove the other ones.  If FORCE is
