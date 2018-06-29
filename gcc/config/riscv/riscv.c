@@ -3990,7 +3990,8 @@ riscv_expand_epilogue (bool sibcall_p)
       gcc_assert (step2 >= frame->save_libcall_adjustment);
       step2 -= frame->save_libcall_adjustment;
     }
-  else if (cfun->machine->sifive_clic_preemptible_p)
+  else if (cfun->machine->sifive_clic_preemptible_p
+	   && (frame->mask | frame->fmask) != 0)
     {
       /* Disable interrupts.  */
       emit_insn (gen_riscv_csr_read_clear_bits (gen_rtx_REG (word_mode,
