@@ -1,3 +1,7 @@
+2018-07-02  Jim Wilson  <jimw@sifive.com>
+
+	* gcc.target/riscv/interrupt-debug.c: New.
+
 2018-06-06  Jim Wilson  <jimw@sifive.com>
 
 	* gcc.target/riscv/interrupt-5.c (sub3): Add new test.
