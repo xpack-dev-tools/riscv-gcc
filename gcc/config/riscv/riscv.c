@@ -3151,11 +3151,8 @@ riscv_print_operand (FILE *file, rtx op, int letter)
 		case MCAUSE_REGNUM:
 		  reg_name = "mcause";
 		  break;
-		case MSCRATCHI_REGNUM:
-		  reg_name = "mscratchi";
-		  break;
-		case MSCRATCHO_REGNUM:
-		  reg_name = "mscratcho";
+		case MSCRATCHCSW_REGNUM:
+		  reg_name = "mscratchcsw";
 		  break;
 		}
 	      
@@ -3766,7 +3763,7 @@ riscv_expand_prologue (void)
   /* Swap in the stack pointer from the mscratch register.  */
   if (cfun->machine->sifive_clic_stack_swap_p)
     emit_insn (gen_riscv_csr_read_write (stack_pointer_rtx,
-					 GEN_INT (MSCRATCHI_REGNUM),
+					 GEN_INT (MSCRATCHCSW_REGNUM),
 					 stack_pointer_rtx));
 
   /* Save the registers.  */
@@ -4035,7 +4032,7 @@ riscv_expand_epilogue (bool sibcall_p)
   /* Swap out the stack opinter from the mscratch register.  */
   if (cfun->machine->sifive_clic_stack_swap_p)
     emit_insn (gen_riscv_csr_read_write (stack_pointer_rtx,
-					 GEN_INT (MSCRATCHO_REGNUM),
+					 GEN_INT (MSCRATCHCSW_REGNUM),
 					 stack_pointer_rtx));
 
   if (use_restore_libcall)
