@@ -14,5 +14,4 @@ foo2 (void)
   COUNTER++;
 #endif
 }
-/* { dg-final { scan-assembler "mscratchi" } } */
-/* { dg-final { scan-assembler "mscratcho" } } */
+/* { dg-final { scan-assembler-times "mscratchcsw" 2 } } */
