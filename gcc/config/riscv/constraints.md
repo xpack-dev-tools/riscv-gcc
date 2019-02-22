@@ -54,6 +54,11 @@
   (and (match_code "const_int")
        (match_test "LUI_OPERAND (ival)")))
 
+(define_constraint "C"
+  "A 12-bit unsigned immediate for CSR address."
+  (and (match_code "const_int")
+       (match_test "IN_RANGE (ival, 0, IMM_REACH-1)")))
+
 (define_constraint "Wsa"
   "Integer one."
   (and (match_code "const_int")
