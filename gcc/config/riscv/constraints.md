@@ -162,3 +162,8 @@
   "POLY_INT"
   (and (match_code "const_poly_int")
        (match_test "CONST_POLY_INT_COEFFS (op)[0] == UNITS_PER_V_REG.coeffs[0]")))
+
+(define_constraint "C"
+  "A 12-bit unsigned immediate for CSR address."
+  (and (match_code "const_int")
+       (match_test "IN_RANGE (ival, 0, IMM_REACH-1)")))
