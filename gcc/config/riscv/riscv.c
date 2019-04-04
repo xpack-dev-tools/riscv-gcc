@@ -2264,6 +2264,18 @@ riscv_expand_conditional_branch (rtx label, rtx_code code, rtx op0, rtx op1)
   emit_jump_insn (gen_condjump (condition, label));
 }
 
+/* If (CODE OP0 OP1) holds, move CONS to DEST; else move ALT to DEST.  */
+
+void
+riscv_expand_conditional_move (rtx dest, rtx cons, rtx alt, rtx_code code,
+			       rtx op0, rtx op1)
+{
+  riscv_emit_int_compare (&code, &op0, &op1);
+  rtx cond = gen_rtx_fmt_ee (code, GET_MODE (op0), op0, op1);
+  emit_insn (gen_rtx_SET (dest, gen_rtx_IF_THEN_ELSE (GET_MODE (dest), cond,
+						      cons, alt)));
+}
+
 /* Implement TARGET_FUNCTION_ARG_BOUNDARY.  Every parameter gets at
    least PARM_BOUNDARY bits of alignment, but will be given anything up
    to PREFERRED_STACK_BOUNDARY bits if the type requires it.  */
@@ -3116,6 +3128,8 @@ riscv_memmodel_needs_release_fence (enum memmodel model)
    'C'	Print the integer branch condition for comparison OP.
    'A'	Print the atomic operation suffix for memory model OP.
    'F'	Print a FENCE if the memory model requires a release.
+   'w'	Print nothing if OP is zero, otherwise print OP followed by a comma.
+   'y'	Print 'z' if OP is zero, otherwise print nothing.
    'z'	Print x0 if OP is zero, otherwise print OP normally.
    'x'	Print CONST_INT OP as a CSR register name or as a hex number.
    'i'	Print i if the operand is not a register.  */
@@ -3162,9 +3176,13 @@ riscv_print_operand (FILE *file, rtx op, int letter)
       switch (code)
 	{
 	case REG:
-	  if (letter && letter != 'z')
+	  if (letter && letter == 'y')
+	    break;
+	  else if (letter && letter != 'w' && letter != 'z')
 	    output_operand_lossage ("invalid use of '%%%c'", letter);
 	  fprintf (file, "%s", reg_names[REGNO (op)]);
+	  if (letter == 'w')
+	    fputs(",", file);
 	  break;
 
 	case MEM:
@@ -3175,7 +3193,11 @@ riscv_print_operand (FILE *file, rtx op, int letter)
 	  break;
 
 	default:
-	  if (letter == 'z' && op == CONST0_RTX (GET_MODE (op)))
+	  if (letter == 'w')
+	    break;
+	  else if (letter == 'y' && op == CONST0_RTX (GET_MODE (op)))
+	    fputs ("z", file);
+	  else if (letter == 'z' && op == CONST0_RTX (GET_MODE (op)))
 	    fputs (reg_names[GP_REG_FIRST], file);
 	  else if (letter == 'x' && GET_CODE (op) == CONST_INT)
 	    {
@@ -3203,7 +3225,7 @@ riscv_print_operand (FILE *file, rtx op, int letter)
 	      else
 		asm_fprintf (file, "0x%wx", reg_num);
 	    }
-	  else if (letter && letter != 'z')
+	  else if (letter && letter != 'y' && letter != 'z')
 	    output_operand_lossage ("invalid use of '%%%c'", letter);
 	  else
 	    output_addr_const (file, riscv_strip_unspec_address (op));
