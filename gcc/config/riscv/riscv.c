@@ -236,6 +236,9 @@ struct riscv_cpu_info {
   /* This CPU's canonical name.  */
   const char *name;
 
+  /* Which automaton to use for tuning.  */
+  enum riscv_microarchitecture_type microarchitecture;
+
   /* Tuning parameters for this CPU.  */
   const struct riscv_tune_info *tune_info;
 };
@@ -250,6 +253,9 @@ unsigned riscv_stack_boundary;
 
 /* Which tuning parameters to use.  */
 static const struct riscv_tune_info *tune_info;
+
+/* Which automaton to use for tuning.  */
+enum riscv_microarchitecture_type riscv_microarchitecture;
 
 /* Index R is the smallest register class that contains register R.  */
 const enum reg_class riscv_regno_to_class[FIRST_PSEUDO_REGISTER] = {
@@ -282,6 +288,19 @@ static const struct riscv_tune_info rocket_tune_info = {
   1,						/* issue_rate */
   3,						/* branch_cost */
   5,						/* memory_cost */
+  true,						/* slow_unaligned_access */
+};
+
+/* Costs to use when optimizing for Sifive 7 Series.  */
+static const struct riscv_tune_info sifive_7_tune_info = {
+  {COSTS_N_INSNS (4), COSTS_N_INSNS (5)},	/* fp_add */
+  {COSTS_N_INSNS (4), COSTS_N_INSNS (5)},	/* fp_mul */
+  {COSTS_N_INSNS (20), COSTS_N_INSNS (20)},	/* fp_div */
+  {COSTS_N_INSNS (4), COSTS_N_INSNS (4)},	/* int_mul */
+  {COSTS_N_INSNS (6), COSTS_N_INSNS (6)},	/* int_div */
+  2,						/* issue_rate */
+  4,						/* branch_cost */
+  3,						/* memory_cost */
   true,						/* slow_unaligned_access */
 };
 
@@ -321,8 +340,11 @@ static const struct attribute_spec riscv_attribute_table[] =
 
 /* A table describing all the processors GCC knows about.  */
 static const struct riscv_cpu_info riscv_cpu_info_table[] = {
-  { "rocket", &rocket_tune_info },
-  { "size", &optimize_size_tune_info },
+  { "rocket", generic, &rocket_tune_info },
+  { "sifive-3-series", generic, &rocket_tune_info },
+  { "sifive-5-series", generic, &rocket_tune_info },
+  { "sifive-7-series", sifive_7, &sifive_7_tune_info },
+  { "size", generic, &optimize_size_tune_info },
 };
 
 /* Return the riscv_cpu_info entry for the given name string.  */
@@ -2242,6 +2264,18 @@ riscv_expand_conditional_branch (rtx label, rtx_code code, rtx op0, rtx op1)
   emit_jump_insn (gen_condjump (condition, label));
 }
 
+/* If (CODE OP0 OP1) holds, move CONS to DEST; else move ALT to DEST.  */
+
+void
+riscv_expand_conditional_move (rtx dest, rtx cons, rtx alt, rtx_code code,
+			       rtx op0, rtx op1)
+{
+  riscv_emit_int_compare (&code, &op0, &op1);
+  rtx cond = gen_rtx_fmt_ee (code, GET_MODE (op0), op0, op1);
+  emit_insn (gen_rtx_SET (dest, gen_rtx_IF_THEN_ELSE (GET_MODE (dest), cond,
+						      cons, alt)));
+}
+
 /* Implement TARGET_FUNCTION_ARG_BOUNDARY.  Every parameter gets at
    least PARM_BOUNDARY bits of alignment, but will be given anything up
    to PREFERRED_STACK_BOUNDARY bits if the type requires it.  */
@@ -3094,6 +3128,8 @@ riscv_memmodel_needs_release_fence (enum memmodel model)
    'C'	Print the integer branch condition for comparison OP.
    'A'	Print the atomic operation suffix for memory model OP.
    'F'	Print a FENCE if the memory model requires a release.
+   'w'	Print nothing if OP is zero, otherwise print OP followed by a comma.
+   'y'	Print 'z' if OP is zero, otherwise print nothing.
    'z'	Print x0 if OP is zero, otherwise print OP normally.
    'x'	Print CONST_INT OP as a CSR register name or as a hex number.
    'i'	Print i if the operand is not a register.  */
@@ -3140,9 +3176,13 @@ riscv_print_operand (FILE *file, rtx op, int letter)
       switch (code)
 	{
 	case REG:
-	  if (letter && letter != 'z')
+	  if (letter && letter == 'y')
+	    break;
+	  else if (letter && letter != 'w' && letter != 'z')
 	    output_operand_lossage ("invalid use of '%%%c'", letter);
 	  fprintf (file, "%s", reg_names[REGNO (op)]);
+	  if (letter == 'w')
+	    fputs(",", file);
 	  break;
 
 	case MEM:
@@ -3153,7 +3193,11 @@ riscv_print_operand (FILE *file, rtx op, int letter)
 	  break;
 
 	default:
-	  if (letter == 'z' && op == CONST0_RTX (GET_MODE (op)))
+	  if (letter == 'w')
+	    break;
+	  else if (letter == 'y' && op == CONST0_RTX (GET_MODE (op)))
+	    fputs ("z", file);
+	  else if (letter == 'z' && op == CONST0_RTX (GET_MODE (op)))
 	    fputs (reg_names[GP_REG_FIRST], file);
 	  else if (letter == 'x' && GET_CODE (op) == CONST_INT)
 	    {
@@ -3181,7 +3225,7 @@ riscv_print_operand (FILE *file, rtx op, int letter)
 	      else
 		asm_fprintf (file, "0x%wx", reg_num);
 	    }
-	  else if (letter && letter != 'z')
+	  else if (letter && letter != 'y' && letter != 'z')
 	    output_operand_lossage ("invalid use of '%%%c'", letter);
 	  else
 	    output_addr_const (file, riscv_strip_unspec_address (op));
@@ -4153,6 +4197,93 @@ riscv_can_use_return_insn (void)
 	  && ! cfun->machine->interrupt_handler_p);
 }
 
+/* Given that there exists at least one variable that is set (produced)
+   by OUT_INSN and read (consumed) by IN_INSN, return true iff
+   IN_INSN represents one or more memory store operations and none of
+   the variables set by OUT_INSN is used by IN_INSN as the address of a
+   store operation.  If either IN_INSN or OUT_INSN does not represent
+   a "single" RTL SET expression (as loosely defined by the
+   implementation of the single_set function) or a PARALLEL with only
+   SETs, CLOBBERs, and USEs inside, this function returns false.
+
+   Borrowed from rs6000, riscv_store_data_bypass_p checks for certain
+   conditions that result in assertion failures in the generic
+   store_data_bypass_p function and returns FALSE in such cases.
+
+   This is required to make -msave-restore work with the sifive-7
+   pipeline description.  */
+
+bool
+riscv_store_data_bypass_p (rtx_insn *out_insn, rtx_insn *in_insn)
+{
+  rtx out_set, in_set;
+  rtx out_pat, in_pat;
+  rtx out_exp, in_exp;
+  int i, j;
+
+  in_set = single_set (in_insn);
+  if (in_set)
+    {
+      if (MEM_P (SET_DEST (in_set)))
+	{
+	  out_set = single_set (out_insn);
+	  if (!out_set)
+	    {
+	      out_pat = PATTERN (out_insn);
+	      if (GET_CODE (out_pat) == PARALLEL)
+		{
+		  for (i = 0; i < XVECLEN (out_pat, 0); i++)
+		    {
+		      out_exp = XVECEXP (out_pat, 0, i);
+		      if ((GET_CODE (out_exp) == CLOBBER)
+			  || (GET_CODE (out_exp) == USE))
+			continue;
+		      else if (GET_CODE (out_exp) != SET)
+			return false;
+		    }
+		}
+	    }
+	}
+    }
+  else
+    {
+      in_pat = PATTERN (in_insn);
+      if (GET_CODE (in_pat) != PARALLEL)
+	return false;
+
+      for (i = 0; i < XVECLEN (in_pat, 0); i++)
+	{
+	  in_exp = XVECEXP (in_pat, 0, i);
+	  if ((GET_CODE (in_exp) == CLOBBER) || (GET_CODE (in_exp) == USE))
+	    continue;
+	  else if (GET_CODE (in_exp) != SET)
+	    return false;
+
+	  if (MEM_P (SET_DEST (in_exp)))
+	    {
+	      out_set = single_set (out_insn);
+	      if (!out_set)
+		{
+		  out_pat = PATTERN (out_insn);
+		  if (GET_CODE (out_pat) != PARALLEL)
+		    return false;
+		  for (j = 0; j < XVECLEN (out_pat, 0); j++)
+		    {
+		      out_exp = XVECEXP (out_pat, 0, j);
+		      if ((GET_CODE (out_exp) == CLOBBER)
+			  || (GET_CODE (out_exp) == USE))
+			continue;
+		      else if (GET_CODE (out_exp) != SET)
+			return false;
+		    }
+		}
+	    }
+	}
+    }
+
+  return store_data_bypass_p (out_insn, in_insn);
+}
+
 /* Implement TARGET_SECONDARY_MEMORY_NEEDED.
 
    When floating-point registers are wider than integer ones, moves between
@@ -4400,6 +4531,7 @@ riscv_option_override (void)
   /* Handle -mtune.  */
   cpu = riscv_parse_cpu (riscv_tune_string ? riscv_tune_string :
 			 RISCV_TUNE_STRING_DEFAULT);
+  riscv_microarchitecture = cpu->microarchitecture;
   tune_info = optimize_size ? &optimize_size_tune_info : cpu->tune_info;
 
   /* Use -mtune's setting for slow_unaligned_access, even when optimizing
