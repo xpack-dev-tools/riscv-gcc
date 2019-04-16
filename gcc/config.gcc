@@ -2071,8 +2071,17 @@ riscv*-*-linux*)
 	# automatically detect that GAS supports it, yet we require it.
 	gcc_cv_initfini_array=yes
 	;;
-riscv*-*-elf* | riscv*-*-rtems*)
-	tm_file="elfos.h newlib-stdint.h ${tm_file} riscv/elf.h"
+# [GNU MCU Eclipse]
+riscv*-*-elf* | riscv*-*-rtems* | riscv-none-embed)
+	# [GNU MCU Eclipse]
+	case ${target} in
+	riscv-none-embed)
+	  tm_file="elfos.h newlib-stdint.h ${tm_file} riscv/elf-embed.h"
+	  ;;
+	*)
+	  tm_file="elfos.h newlib-stdint.h ${tm_file} riscv/elf.h"
+	  ;;
+	esac
 	case ${target} in
 	*-*-rtems*)
 	  tm_file="${tm_file} rtems.h riscv/rtems.h"
