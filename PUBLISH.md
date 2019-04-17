@@ -17,29 +17,40 @@ Note: if you missed to update the `CHANGELOG.txt` before starting the build,
 edit the file and rerun the build, it should take only a few minutes to 
 recreate the archives with the correct file.
 
-## Commit all project git
+## Build
 
-Commit all
+Before starting the build, perform some checks.
+
+### Check repos up-to-date
+
+Be sure everything is committed and pushed
 
 - `gnu-mcu-eclipse/riscv-binutils-gdb.git`
 - `gnu-mcu-eclipse/riscv-none-gcc.git`
 - `gnu-mcu-eclipse/riscv-newlib.git`
 
-## Edit the build script
+### Check tags
 
-Edit the `VERSION` file to refer to the actual release.
+The names should look like `v8.2.0-2`.
 
-## Push the build script git
+For The binutils-gdb repo, a separate tag should be present, for the gdb build.
+
+### Check version
+
+The `VERSION` file to refer to the actual release.
+
+### Push the build script git
 
 Push `gnu-mcu-eclipse/riscv-none-gcc-build.git` to GitHub.
 
 Possibly push the helper project too.
 
-## Build
+### Run the build scripts
 
-Follow the instructions on the 
+When everything is ready, follow the instructions from the 
 [build](https://github.com/gnu-mcu-eclipse/riscv-none-gcc-build/blob/master/README.md) 
 page.
+
 
 ## Prepare a new blog post 
 
