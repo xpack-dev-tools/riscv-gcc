@@ -25,7 +25,7 @@ to the original RISC-V distribution.
 
 Open the `CHANGELOG.txt` file from the
 `gnu-mcu-eclipse/riscv-none-gcc-build.git` project git, and check if 
-all new entries are in
+all new entries are in.
 
 Note: if you missed to update the `CHANGELOG.txt` before starting the build, 
 edit the file and rerun the build, it should take only a few minutes to 
@@ -81,7 +81,7 @@ In the `gnu-mcu-eclipse.github.io-source.git` web git:
 - add a new file to `_posts/riscv-none-gcc/releases`
 - name the file like `2018-05-06-riscv-none-gcc-v8-2-0-2-1-20190425-released.md`
 - name the post like: **GNU MCU Eclipse RISC-V Embedded GCC v8.2.0-2.1 20190425 released**.
-- as `download_url` use the generic `https://github.com/gnu-mcu-eclipse/riscv-none-gcc/releases/` 
+- as `download_url` use the generic `https://github.com/gnu-mcu-eclipse/riscv-none-gcc/releases/tag/v8.2.0-2.1/` 
 - update the `date:` field with the current date
 
 If any, close [issues](https://github.com/gnu-mcu-eclipse/riscv-none-gcc/issues) 
@@ -118,12 +118,12 @@ gnu-mcu-eclipse-riscv-none-gcc-7.2.0-3-20190425-1300-win64.zip
 - commit the `gnu-mcu-eclipse.github.io-source` project; use a message 
 like **GNU MCU Eclipse RISC-V Embedded GCC v8.2.0-2.1 20190425 released**
 - wait for the Travis build to complete; occasionally links to not work,
- and might need to restart the build.
+ and might need to restart the build
 - remember the post URL, since it must be updated in the release page
 
 ## Create the xPack release
 
-Follow the instructions on the 
+Follow the instructions from the 
 [gnu-mcu-eclipse/riscv-none-gcc-xpack](https://github.com/gnu-mcu-eclipse/riscv-none-gcc-xpack/blob/xpack/README.md#maintainer-info)
 page.
 
