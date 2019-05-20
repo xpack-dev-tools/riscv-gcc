@@ -55,6 +55,31 @@ page.
 Install the binaries on all supported platforms and check if they are 
 functional.
 
+For this, on each platform:
+
+- unpack the archive in `Downloads`, and rename the version folder,
+  by replacing a dash with a space; this will test paths with spaces;
+  on Windows the current paths always use spaces, so renaming is not needed;
+- clone the build repo from https://github.com/gnu-mcu-eclipse/riscv-none-gcc-build.git
+  locally; on Windows use the Git console;
+- in a separate workspace, Import -> General -> Existing Projects into Workspace
+  the Eclipse projects available in the 
+  `tests/eclipse` folder of the build repo; more details in the 
+  [README.md](https://github.com/gnu-mcu-eclipse/riscv-none-gcc-build/blob/master/tests/eclipse/README.md)
+- define the **Workspace RISC-V Toolchain path** to use the `Downloads` 
+  temporary location
+- to test the compiler: for all projects
+  - remove all build folders 
+  - build all configs
+- to test the debugger: for all OpenOCD debug configurations
+  - start the OpenOCD debug session, 
+  - single step a few lines (Step Over)
+  - start continuous run (Resume)
+  - halt (Suspend)
+  - start (Resume)
+  - stop (Terminate)
+  - (don't miss the LTO cases, since in the past they had problems)
+
 ## Create a new GitHub release
 
 - go to the [GitHub Releases](https://github.com/gnu-mcu-eclipse/riscv-none-gcc/releases) page
@@ -127,6 +152,26 @@ Follow the instructions from the
 [gnu-mcu-eclipse/riscv-none-gcc-xpack](https://github.com/gnu-mcu-eclipse/riscv-none-gcc-xpack/blob/xpack/README.md#maintainer-info)
 page.
 
+## Test the xPack
+
+At minimum, test only if the URLs and SHA sums are correct, but for 
+extra safety also rerun the tests.
+
+On all available platforms:
+
+- install the new xPack release
+
+```console
+$ xpm install --global @gnu-mcu-eclipse/riscv-none-gcc
+```
+
+- double check version, to be sure it is the latest release (sometimes 
+  the NPM server needs some time to propagate the changes)
+- in Eclipse, disable the Workspace RISC-V Toolchains path (**Restore Defaults**)
+- in Eclipse, select the Global RISC-V Toolchains path to the new xPack release
+- remove the toolchain temporarily installed in `Downloads`
+- rerun all build and debug tests, as before
+
 ## Create a final GitHub release
 
 - go to the [GitHub Releases](https://github.com/gnu-mcu-eclipse/riscv-none-gcc/releases) page
@@ -138,6 +183,16 @@ page.
 - update the current release version
 - **disable** the **pre-release** button
 - click the **Update Release** button
+
+## Tag the build commit
+
+In the [gnu-mcu-eclipse/riscv-none-gcc-build](https://github.com/gnu-mcu-eclipse/riscv-none-gcc-build)
+project, add a tag with the current version, like `v8.2.1-1.1` (with *v*).
+
+## Update the README.md
+
+List the new release in the `gnu-mcu-eclipse/riscv-none-gcc.git` project
+README.md.
 
 ## Share on Facebook
 
