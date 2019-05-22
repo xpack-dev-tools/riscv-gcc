@@ -32,6 +32,10 @@ The **GNU MCU Eclipse RISC-V Embedded GCC** releases generally follow the offici
 [RISC-V](https://github.com/riscv/riscv-gnu-toolchain/)
 distribution, maintained by SiFive.
 
+- 8.2.0-2.2 (20190521)
+- 8.2.0-2.1 (20190425)
+- 8.1.0-2 (20181019)
+- 7.2.0-4 (20180606)
 - 7.2.0-3 (20180506)
 - 7.2.0-2 (20180111)
 - 7.2.0-1 (20171109)
