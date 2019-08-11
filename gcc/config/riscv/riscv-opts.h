@@ -67,6 +67,28 @@ enum riscv_align_data {
 #define TARGET_ZICSR    ((riscv_zi_subext & MASK_ZICSR) != 0)
 #define TARGET_ZIFENCEI ((riscv_zi_subext & MASK_ZIFENCEI) != 0)
 
+#define MASK_ZBA (1 << 0)
+#define MASK_ZBB (1 << 1)
+#define MASK_ZBS (1 << 2)
+#define MASK_ZBP (1 << 3)
+#define MASK_ZBE (1 << 4)
+#define MASK_ZBF (1 << 5)
+#define MASK_ZBC (1 << 6)
+#define MASK_ZBR (1 << 7)
+#define MASK_ZBM (1 << 8)
+#define MASK_ZBT (1 << 9)
+
+#define TARGET_ZBA ((riscv_bitmanip_subext & MASK_ZBA) != 0)
+#define TARGET_ZBB ((riscv_bitmanip_subext & MASK_ZBB) != 0)
+#define TARGET_ZBS ((riscv_bitmanip_subext & MASK_ZBS) != 0)
+#define TARGET_ZBP ((riscv_bitmanip_subext & MASK_ZBP) != 0)
+#define TARGET_ZBE ((riscv_bitmanip_subext & MASK_ZBE) != 0)
+#define TARGET_ZBF ((riscv_bitmanip_subext & MASK_ZBF) != 0)
+#define TARGET_ZBC ((riscv_bitmanip_subext & MASK_ZBC) != 0)
+#define TARGET_ZBR ((riscv_bitmanip_subext & MASK_ZBR) != 0)
+#define TARGET_ZBM ((riscv_bitmanip_subext & MASK_ZBM) != 0)
+#define TARGET_ZBT ((riscv_bitmanip_subext & MASK_ZBT) != 0)
+
 /* RVV vector register sizes.  */
 enum riscv_rvv_vector_bits_enum {
   RVV_SCALABLE,

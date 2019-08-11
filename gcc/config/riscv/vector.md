@@ -50,9 +50,6 @@
 ;; All operation valid for <op>not instruction in mask-register logical.
 (define_code_iterator any_opnot [and ior])
 
-;; All operation valid for min and max.
-(define_code_iterator any_minmax [smin umin smax umax])
-
 ;;All operantion valid for floating-point and integer convert.
 (define_code_iterator any_fix [fix unsigned_fix])
 (define_code_iterator any_float [float unsigned_float])

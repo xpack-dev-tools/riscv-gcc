@@ -45,6 +45,9 @@
   UNSPEC_LRINT
   UNSPEC_LROUND
 
+  ;; Bitmanip
+  UNSPEC_PCNTW
+
   ;; Stack tie
   UNSPEC_TIE
 
@@ -255,7 +258,7 @@
 (define_attr "type"
   "unknown,branch,jump,call,load,fpload,store,fpstore,
    mtc,mfc,const,arith,logical,shift,slt,imul,idiv,move,fmove,fadd,fmul,
-   fmadd,fdiv,fcmp,fcvt,fsqrt,multi,auipc,sfb_alu,nop,ghost,vector"
+   fmadd,fdiv,fcmp,fcvt,fsqrt,multi,auipc,sfb_alu,nop,ghost,vector,bitmanip"
   (cond [(eq_attr "got" "load") (const_string "load")
 
 	 ;; If a doubleword move uses these expensive instructions,
@@ -468,6 +471,9 @@
 (define_code_iterator any_ge [ge geu])
 (define_code_iterator any_lt [lt ltu])
 (define_code_iterator any_le [le leu])
+
+;; All operation valid for min and max.
+(define_code_iterator any_minmax [smin umin smax umax])
 
 ;; <u> expands to an empty string when doing a signed operation and
 ;; "u" when doing an unsigned operation.
@@ -1193,11 +1199,16 @@
 
 ;; Extension insns.
 
-(define_insn_and_split "zero_extendsidi2"
+(define_expand "zero_extendsidi2"
+  [(set (match_operand:DI 0 "register_operand")
+	(zero_extend:DI (match_operand:SI 1 "nonimmediate_operand")))]
+  "TARGET_64BIT")
+
+(define_insn_and_split "*zero_extendsidi2_internal"
   [(set (match_operand:DI     0 "register_operand"     "=r,r")
 	(zero_extend:DI
 	    (match_operand:SI 1 "nonimmediate_operand" " r,m")))]
-  "TARGET_64BIT"
+  "TARGET_64BIT && !(TARGET_ZBA || TARGET_ZBB)"
   "@
    #
    lwu\t%0,%1"
@@ -1212,11 +1223,15 @@
   [(set_attr "move_type" "shift_shift,load")
    (set_attr "mode" "DI")])
 
-(define_insn_and_split "zero_extendhi<GPR:mode>2"
+(define_expand "zero_extendhi<GPR:mode>2"
+  [(set (match_operand:GPR 0 "register_operand")
+	(zero_extend:GPR (match_operand:HI 1 "nonimmediate_operand")))])
+
+(define_insn_and_split "*zero_extendhi<GPR:mode>2_internal"
   [(set (match_operand:GPR    0 "register_operand"     "=r,r")
 	(zero_extend:GPR
 	    (match_operand:HI 1 "nonimmediate_operand" " r,m")))]
-  ""
+  "!(TARGET_ZBA || TARGET_ZBB)"
   "@
    #
    lhu\t%0,%1"
@@ -2017,7 +2032,7 @@
 			   (match_operand:QI 2 "immediate_operand" "I"))
 		(match_operand 3 "immediate_operand" "")))
    (clobber (match_scratch:DI 4 "=&r"))]
-  "TARGET_64BIT
+  "TARGET_64BIT && !TARGET_ZBA
    && ((INTVAL (operands[3]) >> INTVAL (operands[2])) == 0xffffffff)"
   "#"
   "&& reload_completed"
@@ -2649,6 +2664,14 @@
   ""
   "")
 
+(define_insn "riscv_pcntw"
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(unspec
+	    [(match_operand:SI 1 "register_operand" "r")]
+	    UNSPEC_PCNTW))]
+  ""
+  "pcntw\t%0,%1")
+
 (define_insn "riscv_frflags"
   [(set (match_operand:SI 0 "register_operand" "=r")
 	(unspec_volatile [(const_int 0)] UNSPECV_FRFLAGS))]
@@ -2687,6 +2710,7 @@
   ""
   [(set_attr "length" "0")]
 )
+(include "bitmanip.md")
 
 ;; This fixes a failure with gcc.c-torture/execute/pr64242.c at -O2 for a
 ;; 32-bit target when using -mtune=sifive-7-series.  The first sched pass

@@ -64,6 +64,15 @@ static const riscv_implied_info_t riscv_implied_info[] =
 
   {"v", "zvamo"},
   {"v", "zvlsseg"},
+
+  {"b", "zbb"},
+  {"b", "zbs"},
+  {"b", "zba"},
+  {"b", "zbp"},
+  {"b", "zbe"},
+  {"b", "zbf"},
+  {"b", "zbc"},
+  {"b", "zbm"},
   {NULL, NULL}
 };
 
@@ -121,6 +130,18 @@ static const struct riscv_ext_version riscv_ext_version_table[] =
   {"zvamo",   ISA_SPEC_CLASS_NONE, 1, 0},
   {"zvlsseg", ISA_SPEC_CLASS_NONE, 1, 0},
   {"zvqmac",  ISA_SPEC_CLASS_NONE, 1, 0},
+
+  {"b",   ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zba", ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zbb", ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zbc", ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zbe", ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zbf", ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zbr", ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zbm", ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zbs", ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zbt", ISA_SPEC_CLASS_NONE, 0, 92},
+  {"zbp", ISA_SPEC_CLASS_NONE, 0, 92},
 
   /* Terminate the list.  */
   {NULL, ISA_SPEC_CLASS_NONE, 0, 0}
@@ -1023,6 +1044,18 @@ static const riscv_ext_flag_table_t riscv_ext_flag_table[] =
   {"f", &gcc_options::x_target_flags, MASK_HARD_FLOAT},
   {"d", &gcc_options::x_target_flags, MASK_DOUBLE_FLOAT},
   {"c", &gcc_options::x_target_flags, MASK_RVC},
+  {"b", &gcc_options::x_target_flags, MASK_BITMANIP},
+
+  {"zba", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBA},
+  {"zbb", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBB},
+  {"zbs", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBS},
+  {"zbp", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBP},
+  {"zbr", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBR},
+  {"zbe", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBE},
+  {"zbf", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBF},
+  {"zbc", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBC},
+  {"zbm", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBM},
+  {"zbt", &gcc_options::x_riscv_bitmanip_subext, MASK_ZBT},
 
   {"zfh",    &gcc_options::x_target_flags, MASK_RVZFH},
 
@@ -1070,10 +1103,6 @@ riscv_parse_arch_string (const char *isa,
 	    opts->*arch_ext_flag_tab->var_ref |= arch_ext_flag_tab->mask;
 	}
     }
-
-  if (subset_list->lookup ("zfh") && ! subset_list->lookup("f"))
-    error_at (loc, "%<-march=%s%>: `zfh` extension requires `f' extension",
-	      isa);
 
   if (current_subset_list)
     delete current_subset_list;

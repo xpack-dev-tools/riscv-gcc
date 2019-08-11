@@ -148,6 +148,7 @@ struct riscv_builtin_description {
   unsigned int (*avail) (void);
 };
 
+AVAIL (bitmanip64, TARGET_64BIT && TARGET_BITMANIP)
 AVAIL (hard_float, TARGET_HARD_FLOAT)
 AVAIL (vector, TARGET_VECTOR)
 
@@ -2274,7 +2275,12 @@ _RVV_SEG_ARG (RISCV_DECL_SEG_TYPES, X)
     RISCV_VF##SEW##M##LMUL##X##NF##_FTYPE_VF##SEW##M##LMUL##_VF##SEW##M##LMUL##_VF##SEW##M##LMUL##_VF##SEW##M##LMUL##_VF##SEW##M##LMUL##_VF##SEW##M##LMUL##_VF##SEW##M##LMUL##_VF##SEW##M##LMUL, \
     vector),
 
+#define RISCV_FTYPE_ATYPES2(A, B, C) \
+  RISCV_ATYPE_##A, RISCV_ATYPE_##B, RISCV_ATYPE_##C
+
 static const struct riscv_builtin_description riscv_builtins[] = {
+  DIRECT_BUILTIN (pcntw, RISCV_SI_FTYPE_SI, bitmanip64),
+  DIRECT_BUILTIN (rolw, RISCV_SI_FTYPE_SI_SI, bitmanip64),
   DIRECT_BUILTIN (frflags, RISCV_USI_FTYPE, hard_float),
   DIRECT_NO_TARGET_BUILTIN (fsflags, RISCV_VOID_FTYPE_USI, hard_float),
 
