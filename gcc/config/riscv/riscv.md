@@ -40,11 +40,93 @@
   UNSPEC_FLT_QUIET
   UNSPEC_FLE_QUIET
   UNSPEC_COPYSIGN
+  UNSPEC_NCOPYSIGN
+  UNSPEC_XORSIGN
   UNSPEC_LRINT
   UNSPEC_LROUND
 
   ;; Stack tie
   UNSPEC_TIE
+
+  ;; Vector unspecs.
+  UNSPEC_FIRST
+  UNSPEC_SBF
+  UNSPEC_SIF
+  UNSPEC_SOF
+  UNSPEC_IOTA
+  UNSPEC_VID
+  UNSPEC_MASKED_STORE
+  UNSPEC_STRIDED_LOAD
+  UNSPEC_STRIDED_STORE
+  UNSPEC_REDUC
+  UNSPEC_ORDERED_REDUC
+  UNSPEC_REDUC_SUM
+  UNSPEC_REDUC_USUM
+  UNSPEC_ORDERED_REDUC_SUM
+  UNSPEC_OVERFLOW
+  UNSPEC_VMULHS
+  UNSPEC_VMULHU
+  UNSPEC_VMULHSU
+  UNSPEC_FCVT_XUF
+  UNSPEC_ROD
+  UNSPEC_VFCLASS
+  UNSPEC_VSLIDEUP
+  UNSPEC_VSLIDE1UP
+  UNSPEC_VFSLIDE1UP
+  UNSPEC_VSLIDEDOWN
+  UNSPEC_VSLIDE1DOWN
+  UNSPEC_VFSLIDE1DOWN
+  UNSPEC_VRGATHER
+  UNSPEC_VCOMPRESS
+  UNSPEC_VNCLIP
+  UNSPEC_VNCLIPU
+  UNSPEC_VSSRL
+  UNSPEC_VSSRA
+  UNSPEC_VAADDU
+  UNSPEC_VAADD
+  UNSPEC_VASUBU
+  UNSPEC_VASUB
+  UNSPEC_VSMUL
+  UNSPEC_VLEFF
+  UNSPEC_LOAD_GATHER
+  UNSPEC_INDEXED_LOAD
+  UNSPEC_STORE_SCATTER
+  UNSPEC_ORDERED_INDEXED_STORE
+  UNSPEC_UNORDERED_INDEXED_STORE
+  UNSPEC_VAMO_SWAP
+  UNSPEC_VAMO_ADD
+  UNSPEC_VAMO_XOR
+  UNSPEC_VAMO_AND
+  UNSPEC_VAMO_OR
+  UNSPEC_VAMO_MIN
+  UNSPEC_VAMO_MAX
+  UNSPEC_VAMO_MINU
+  UNSPEC_VAMO_MAXU
+  UNSPEC_READ_VL
+  UNSPEC_WHOLE_MOVE
+  UNSPEC_VPOPCOUNT
+  UNSPEC_VQMAC
+  UNSPEC_VMADD
+  UNSPEC_READ_VTYPE
+  UNSPEC_WRITE_VTYPE
+  UNSPEC_MASK_VMADD
+  UNSPEC_MASK_VMSUB
+  UNSPEC_MASK_VMACC
+  UNSPEC_MASK_VMSAC
+  UNSPEC_MASK_VFMADD
+  UNSPEC_MASK_VFMACC
+  UNSPEC_MASK_VFNMADD
+  UNSPEC_MASK_VFNMACC
+  UNSPEC_MASK_VFWMACC
+  UNSPEC_MASK_VFWNMACC
+  UNSPEC_VCLR
+  UNSPEC_VSET
+  UNSPEC_USEVL
+
+  ;; Segment load/store
+  UNSPEC_SEG_STORE
+  UNSPEC_SEG_LOAD
+  UNSPEC_SEG_LOAD_FIRST_FAULT
 ])
 
 (define_c_enum "unspecv" [
@@ -65,6 +147,11 @@
   UNSPECV_BLOCKAGE
   UNSPECV_FENCE
   UNSPECV_FENCE_I
+
+  ;; Vector unspecs.
+  UNSPECV_VSETVL
+  UNSPECV_VLOAD
+  UNSPECV_VSTORE
 ])
 
 (define_constants
@@ -84,6 +171,9 @@
    (S9_REGNUM			25)
    (S10_REGNUM			26)
    (S11_REGNUM			27)
+
+   (VL_REGNUM			66)
+   (VTYPE_REGNUM		67)
 
    (NORMAL_RETURN		0)
    (SIBCALL_RETURN		1)
@@ -165,7 +255,7 @@
 (define_attr "type"
   "unknown,branch,jump,call,load,fpload,store,fpstore,
    mtc,mfc,const,arith,logical,shift,slt,imul,idiv,move,fmove,fadd,fmul,
-   fmadd,fdiv,fcmp,fcvt,fsqrt,multi,auipc,sfb_alu,nop,ghost"
+   fmadd,fdiv,fcmp,fcvt,fsqrt,multi,auipc,sfb_alu,nop,ghost,vector"
   (cond [(eq_attr "got" "load") (const_string "load")
 
 	 ;; If a doubleword move uses these expensive instructions,
@@ -385,7 +475,9 @@
 		     (gt "") (gtu "u")
 		     (ge "") (geu "u")
 		     (lt "") (ltu "u")
-		     (le "") (leu "u")])
+		     (le "") (leu "u")
+		     (fix "") (unsigned_fix "u")
+		     (float "") (unsigned_float "u")])
 
 ;; <su> is like <u>, but the signed form expands to "s" rather than "".
 (define_code_attr su [(sign_extend "s") (zero_extend "u")])
@@ -394,6 +486,7 @@
 (define_code_attr optab [(ashift "ashl")
 			 (ashiftrt "ashr")
 			 (lshiftrt "lshr")
+			 (mult "mul")
 			 (div "div")
 			 (mod "mod")
 			 (udiv "udiv")
@@ -406,7 +499,13 @@
 			 (xor "xor")
 			 (and "and")
 			 (plus "add")
-			 (minus "sub")])
+			 (minus "sub")
+			 (smax "max")
+			 (smin "min")
+			 (us_plus "usadd")
+			 (ss_plus "ssadd")
+			 (us_minus "ussub")
+			 (ss_minus "sssub")])
 
 ;; <insn> expands to the name of the insn that implements a particular code.
 (define_code_attr insn [(ashift "sll")
@@ -420,7 +519,15 @@
 			(xor "xor")
 			(and "and")
 			(plus "add")
-			(minus "sub")])
+			(minus "sub")
+			(smax "max")
+			(umax "maxu")
+			(smin "min")
+			(umin "minu")
+			(us_plus "saddu")
+			(ss_plus "sadd")
+			(us_minus "ssubu")
+			(ss_minus "ssub")])
 
 ;; Ghost instructions produce no real code and introduce no hazards.
 ;; They exist purely to express an effect on dataflow.
@@ -453,6 +560,21 @@
   { return TARGET_64BIT ? "add%i2w\t%0,%1,%2" : "add%i2\t%0,%1,%2"; }
   [(set_attr "type" "arith")
    (set_attr "mode" "SI")])
+
+(define_expand "adddi3x"
+  [(set (match_operand:DI          0 "register_operand")
+	(plus:DI (match_operand:DI 1 "register_operand")
+		 (match_operand:DI 2 "move_operand")))]
+  "TARGET_64BIT"
+{
+  if (!arith_operand (operands[2], DImode))
+    {
+      gcc_assert (false);
+    }
+}
+  [(set_attr "type" "arith")
+   (set_attr "mode" "DI")])
+
 
 (define_insn "adddi3"
   [(set (match_operand:DI          0 "register_operand" "=r,r")
@@ -1359,23 +1481,23 @@
 })
 
 (define_insn "*movdi_32bit"
-  [(set (match_operand:DI 0 "nonimmediate_operand" "=r,r,r,m,  *f,*f,*r,*f,*m")
-	(match_operand:DI 1 "move_operand"         " r,i,m,r,*J*r,*m,*f,*f,*f"))]
+  [(set (match_operand:DI 0 "nonimmediate_operand" "=r,r, r,r,m,  *f,*f,*r,*f,*m")
+	(match_operand:DI 1 "move_operand"         " r,i,vp,m,r,*J*r,*m,*f,*f,*f"))]
   "!TARGET_64BIT
    && (register_operand (operands[0], DImode)
        || reg_or_0_operand (operands[1], DImode))"
   { return riscv_output_move (operands[0], operands[1]); }
-  [(set_attr "move_type" "move,const,load,store,mtc,fpload,mfc,fmove,fpstore")
+  [(set_attr "move_type" "move,const,const,load,store,mtc,fpload,mfc,fmove,fpstore")
    (set_attr "mode" "DI")])
 
 (define_insn "*movdi_64bit"
-  [(set (match_operand:DI 0 "nonimmediate_operand" "=r,r,r, m,  *f,*f,*r,*f,*m")
-	(match_operand:DI 1 "move_operand"         " r,T,m,rJ,*r*J,*m,*f,*f,*f"))]
+  [(set (match_operand:DI 0 "nonimmediate_operand" "=r,r, r,r,  m,  *f,*f,*r,*f,*m")
+	(match_operand:DI 1 "move_operand"         " r,T,vp,m,rJ,*r*J,*m,*f,*f,*f"))]
   "TARGET_64BIT
    && (register_operand (operands[0], DImode)
        || reg_or_0_operand (operands[1], DImode))"
   { return riscv_output_move (operands[0], operands[1]); }
-  [(set_attr "move_type" "move,const,load,store,mtc,fpload,mfc,fmove,fpstore")
+  [(set_attr "move_type" "move,const,const,load,store,mtc,fpload,mfc,fmove,fpstore")
    (set_attr "mode" "DI")])
 
 ;; 32-bit Integer moves
@@ -1865,7 +1987,7 @@
        (lshiftrt:GPR (match_dup 3) (match_dup 2)))]
 {
   /* Op2 is a VOIDmode constant, so get the mode size from op1.  */
-  operands[2] = GEN_INT (GET_MODE_BITSIZE (GET_MODE (operands[1]))
+  operands[2] = GEN_INT (GET_MODE_BITSIZE (GET_MODE (operands[1])).to_constant ()
 			 - exact_log2 (INTVAL (operands[2]) + 1));
 })
 
@@ -2586,5 +2708,6 @@
 (include "sync.md")
 (include "peephole.md")
 (include "pic.md")
+(include "vector.md")
 (include "generic.md")
 (include "sifive-7.md")

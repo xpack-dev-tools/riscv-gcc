@@ -61,6 +61,9 @@ static const riscv_implied_info_t riscv_implied_info[] =
   {"d", "f"},
   {"f", "zicsr"},
   {"d", "zicsr"},
+
+  {"v", "zvamo"},
+  {"v", "zvlsseg"},
   {NULL, NULL}
 };
 
@@ -113,6 +116,11 @@ static const struct riscv_ext_version riscv_ext_version_table[] =
   {"zifencei", ISA_SPEC_CLASS_20190608, 2, 0},
 
   {"zfh", ISA_SPEC_CLASS_NONE, 0, 1},
+
+  {"v",       ISA_SPEC_CLASS_NONE, 1, 0},
+  {"zvamo",   ISA_SPEC_CLASS_NONE, 1, 0},
+  {"zvlsseg", ISA_SPEC_CLASS_NONE, 1, 0},
+  {"zvqmac",  ISA_SPEC_CLASS_NONE, 1, 0},
 
   /* Terminate the list.  */
   {NULL, ISA_SPEC_CLASS_NONE, 0, 0}
@@ -1020,6 +1028,8 @@ static const riscv_ext_flag_table_t riscv_ext_flag_table[] =
 
   {"zicsr",    &gcc_options::x_riscv_zi_subext, MASK_ZICSR},
   {"zifencei", &gcc_options::x_riscv_zi_subext, MASK_ZIFENCEI},
+
+  {"v", &gcc_options::x_target_flags, MASK_VECTOR},
 
   {NULL, NULL, 0}
 };
