@@ -450,6 +450,9 @@ case $basic_machine in
 	| ymp-* \
 	| z8k-* | z80-*)
 		;;
+	# [GNU MCU Eclipse]
+ 	riscv-*)
+ 		;;
 	# Recognize the basic CPU types without company name, with glob match.
 	xtensa*)
 		basic_machine=$basic_machine-unknown
@@ -1418,6 +1421,9 @@ case $os in
 	      | -skyos* | -haiku* | -rdos* | -toppers* | -drops* | -es* \
 	      | -onefs* | -tirtos* | -phoenix* | -fuchsia* | -redox* | -bme*)
 	# Remember, each alternative MUST END IN *, to match a version number.
+		;;
+	# [GNU MCU Eclipse]
+	-embed)
 		;;
 	-qnx*)
 		case $basic_machine in
