@@ -1014,6 +1014,8 @@ static const riscv_ext_flag_table_t riscv_ext_flag_table[] =
   {"d", &gcc_options::x_target_flags, MASK_DOUBLE_FLOAT},
   {"c", &gcc_options::x_target_flags, MASK_RVC},
 
+  {"zfh",    &gcc_options::x_target_flags, MASK_RVZFH},
+
   {"zicsr",    &gcc_options::x_riscv_zi_subext, MASK_ZICSR},
   {"zifencei", &gcc_options::x_riscv_zi_subext, MASK_ZIFENCEI},
 
@@ -1056,6 +1058,10 @@ riscv_parse_arch_string (const char *isa,
 	    opts->*arch_ext_flag_tab->var_ref |= arch_ext_flag_tab->mask;
 	}
     }
+
+  if (subset_list->lookup ("zfh") && ! subset_list->lookup("f"))
+    error_at (loc, "%<-march=%s%>: `zfh` extension requires `f' extension",
+	      isa);
 
   if (current_subset_list)
     delete current_subset_list;
