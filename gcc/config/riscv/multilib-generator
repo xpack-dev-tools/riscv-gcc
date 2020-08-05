@@ -31,6 +31,7 @@ from __future__ import print_function
 import sys
 import collections
 import itertools
+from functools import reduce
 
 #
 # TODO: Add selftest.
@@ -134,7 +135,7 @@ def _expand_combination(ext):
   # Add underline as prefix to multi-char extension.
   # e.g.
   #  b * zvamo => b * _zvamo
-  exts = map(add_underline_prefix, exts)
+  exts = list(map(add_underline_prefix, exts))
 
   # Generate combination!
   ext_combs = []
