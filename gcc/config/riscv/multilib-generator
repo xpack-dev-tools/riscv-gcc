@@ -132,10 +132,10 @@ def _expand_combination(ext):
   if len(exts) == 1:
     return [(exts[0],)]
 
-  # Add underline as prefix to multi-char extension.
+  # Add underline to every extension.
   # e.g.
-  #  b * zvamo => b * _zvamo
-  exts = list(map(add_underline_prefix, exts))
+  #  _b * zvamo => _b * _zvamo
+  exts = map(lambda x: '_' + x, exts)
 
   # Generate combination!
   ext_combs = []
@@ -152,7 +152,7 @@ def unique(x):
   #
   # Add sorted to prevent non-deterministic results in different env.
   #
-  return sorted(list(set(x)))
+  return list(sorted(list(set(x))))
 
 def expand_combination(ext):
   ext = list(filter(None, ext.split(',')))
