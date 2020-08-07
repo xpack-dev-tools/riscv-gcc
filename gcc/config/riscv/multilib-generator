@@ -135,7 +135,7 @@ def _expand_combination(ext):
   # Add underline to every extension.
   # e.g.
   #  _b * zvamo => _b * _zvamo
-  exts = map(lambda x: '_' + x, exts)
+  exts = list(map(lambda x: '_' + x, exts))
 
   # Generate combination!
   ext_combs = []
@@ -165,7 +165,7 @@ def expand_combination(ext):
   # Then fold to single list.
   # e.g.
   #   [[("a",), ("b",)], [("a", "b")]] => [("a",), ("b",), ("a", "b")]
-  ext = list(reduce(lambda x, y: x + y, ext_combs))
+  ext = list(reduce(lambda x, y: x + y, ext_combs, []))
 
   # Fold the tuple to string.
   # e.g.
