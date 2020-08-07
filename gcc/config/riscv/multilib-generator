@@ -184,8 +184,7 @@ for cfg in sys.argv[1:]:
   abis[abi] = 1
   extra = list(filter(None, extra.split(',')))
   ext_combs = expand_combination(ext)
-
-  alts = sum([[x] + [x + "_" + y for y in ext_combs] for x in [arch] + extra], [])
+  alts = sum([[x] + [x + y for y in ext_combs] for x in [arch] + extra], [])
   alts = list(map(arch_canonicalize, alts))
 
   # Drop duplicated entry.
