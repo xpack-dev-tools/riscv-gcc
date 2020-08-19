@@ -36,6 +36,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "stor-layout.h"
 #include "expr.h"
 #include "langhooks.h"
+#include "stringpool.h"
 #include "riscv-vector-iterator.h"
 
 /* We don't want the PTR definition from ansi-decl.h.  */
@@ -1616,6 +1617,46 @@ _RVV_SEG_ARG (RISCV_DECL_SEG_TYPES, X)
 		RISCV_VF##WSEW##M1_FTYPE_VB##MLEN##_VF##WSEW##M1_VF##WSEW##M1_VF##SEW##M##LMUL, \
 		vector),
 
+
+#define VUNDEFINED_INT(E, L, MLEN, MODE, SUBMODE)			\
+  DIRECT_NAMED (vundefined_##MODE,					\
+		vundefined_i##E##m##L,					\
+		RISCV_VI##E##M##L##_FTYPE,				\
+		vector),						\
+  DIRECT_NAMED (vundefined_##MODE,					\
+		vundefined_u##E##m##L,					\
+		RISCV_VUI##E##M##L##_FTYPE,				\
+		vector),
+
+#define VUNDEFINED_FLOAT(E, L, MLEN, MODE, SUBMODE)			\
+  DIRECT_NAMED (vundefined_##MODE,					\
+		vundefined_f##E##m##L,					\
+		RISCV_VF##E##M##L##_FTYPE,				\
+		vector),						\
+
+#define VUNDEFINED_VT_INT(SEW, LMUL, NF, MLEN,				\
+			  SMODE_PREFIX_UPPER, SMODE_PREFIX_LOWER,	\
+			  VMODE_PREFIX_UPPER, VMODE_PREFIX_LOWER)	\
+  DIRECT_NAMED (							\
+    vundefined_##VMODE_PREFIX_LOWER##i,					\
+    vundefined_i##SEW##m##LMUL##x##NF,					\
+    RISCV_VI##SEW##M##LMUL##X##NF##_FTYPE,				\
+    vector),								\
+  DIRECT_NAMED (							\
+    vundefined_##VMODE_PREFIX_LOWER##i,					\
+    vundefined_u##SEW##m##LMUL##x##NF,					\
+    RISCV_VUI##SEW##M##LMUL##X##NF##_FTYPE,				\
+    vector),								\
+
+#define VUNDEFINED_VT_FLOAT(SEW, LMUL, NF, MLEN,			\
+			    SMODE_PREFIX_UPPER, SMODE_PREFIX_LOWER,	\
+			    VMODE_PREFIX_UPPER, VMODE_PREFIX_LOWER)	\
+  DIRECT_NAMED (							\
+    vundefined_##VMODE_PREFIX_LOWER##f,					\
+    vundefined_f##SEW##m##LMUL##x##NF,					\
+    RISCV_VF##SEW##M##LMUL##X##NF##_FTYPE,				\
+    vector),
+
 #define VREINTERPRET_INT(E, L, MLEN, IMODE, ISUBMODE)			\
   DIRECT_NAMED (mov##IMODE,						\
 		vreinterpret_i##E##_u##E##_v_##E##m##L,			\
@@ -2483,6 +2524,12 @@ static const struct riscv_builtin_description riscv_builtins[] = {
   _RVV_SEG_NF6_NO_SEW8_ARG(VFLOAT_SEG_CREATE6, )
   _RVV_SEG_NF7_NO_SEW8_ARG(VFLOAT_SEG_CREATE7, )
   _RVV_SEG_NF8_NO_SEW8_ARG(VFLOAT_SEG_CREATE8, )
+
+  _RVV_INT_ITERATOR(VUNDEFINED_INT)
+  _RVV_FLOAT_ITERATOR(VUNDEFINED_FLOAT)
+
+  _RVV_SEG (VUNDEFINED_VT_INT)
+  _RVV_SEG_NO_SEW8 (VUNDEFINED_VT_FLOAT)
 };
 
 /* Index I is the function declaration for riscv_builtins[I], or null if the
@@ -2539,6 +2586,64 @@ riscv_vector_type (const char *name, tree elt_type, enum machine_mode mode)
 
   return result;
 }
+
+static tree
+riscv_vector_tuple_type (const char *name,
+			 tree vector_type,
+			 enum machine_mode mode,
+			 size_t nelt)
+{
+  /* The contents of the type are opaque, so we can define them in any
+     way that maps to the correct ABI type.
+
+     Here we choose to use the same layout as for arm_neon.h, but with
+     "__val" instead of "val":
+
+	struct vxxxSEWmLMULxNF_t { svfoo_t __val[N]; };
+
+     (It wouldn't be possible to write that directly in C or C++ for
+     sizeless types, but that's not a problem for this function.)
+
+     Using arrays simplifies the handling of svget and svset for variable
+     arguments.  */
+  tree tuple_type = lang_hooks.types.make_type (RECORD_TYPE);
+  tree array_type = build_array_type_nelts (vector_type, nelt);
+
+  tree field = build_decl (input_location, FIELD_DECL,
+			   get_identifier ("__val"), array_type);
+
+  DECL_FIELD_CONTEXT (field) = tuple_type;
+  TYPE_FIELDS (tuple_type) = field;
+
+  layout_type (tuple_type);
+  SET_TYPE_MODE (tuple_type, mode);
+
+  tree decl = build_decl (input_location, TYPE_DECL,
+			  get_identifier (name), tuple_type);
+  TYPE_NAME (tuple_type) = decl;
+  TYPE_STUB_DECL (tuple_type) = decl;
+  lang_hooks.decls.pushdecl (decl);
+
+  //(*lang_hooks.types.register_builtin_type) (tuple_type, name);
+  /* ??? Undo the effect of set_underlying_type for C.  The C frontend
+     doesn't recognize DECL as a built-in because (as intended) the decl has
+     a real location instead of BUILTINS_LOCATION.  The frontend therefore
+     treats the decl like a normal C "typedef struct foo foo;", expecting
+     the type for tag "struct foo" to have a dummy unnamed TYPE_DECL instead
+     of the named one we attached above.  It then sets DECL_ORIGINAL_TYPE
+     on the supposedly unnamed decl, creating a circularity that upsets
+     dwarf2out.
+
+     We don't want to follow the normal C model and create "struct foo"
+     tags for tuple types since (a) the types are supposed to be opaque
+     and (b) they couldn't be defined as a real struct anyway.  Treating
+     the TYPE_DECLs as "typedef struct foo foo;" without creating
+     "struct foo" would lead to confusing error messages.  */
+  DECL_ORIGINAL_TYPE (decl) = NULL_TREE;
+
+  return tuple_type;
+}
+
 
 /* Implement TARGET_INIT_BUILTINS.  */
 
@@ -2735,9 +2840,10 @@ riscv_init_builtins (void)
 				SMODE_PREFIX_UPPER, SMODE_PREFIX_LOWER,	\
 				VMODE_PREFIX_UPPER, VMODE_PREFIX_LOWER,X)\
       rvvfloat##SEW##m##LMUL##x##NR##_t_node				\
-	= riscv_vector_type ("vfloat" #SEW "m" #LMUL "x" #NR "_t",	\
-			     F##SEW##_TYPE_NODE,			\
-			     VMODE_PREFIX_UPPER##Fmode);
+        = riscv_vector_tuple_type ("vfloat" #SEW "m" #LMUL "x" #NR "_t",\
+				   rvvfloat##SEW##m##LMUL##_t_node,	\
+				   VMODE_PREFIX_UPPER##Fmode,		\
+				   NR);
 
 _RVV_SEG_NO_SEW8_ARG (RISCV_DEFINE_FSEG_TYPES, X)
 
@@ -2745,13 +2851,15 @@ _RVV_SEG_NO_SEW8_ARG (RISCV_DEFINE_FSEG_TYPES, X)
 			       SMODE_PREFIX_UPPER, SMODE_PREFIX_LOWER,	\
 			       VMODE_PREFIX_UPPER, VMODE_PREFIX_LOWER,X)\
       rvvint##SEW##m##LMUL##x##NR##_t_node				\
-	= riscv_vector_type ("vint" #SEW "m" #LMUL "x" #NR "_t",	\
-			     int##SMODE_PREFIX_UPPER##I_type_node,	\
-			     VMODE_PREFIX_UPPER##Imode);		\
+        = riscv_vector_tuple_type ("vint" #SEW "m" #LMUL "x" #NR "_t",	\
+				   rvvint##SEW##m##LMUL##_t_node,	\
+				   VMODE_PREFIX_UPPER##Imode,		\
+				   NR);					\
       rvvuint##SEW##m##LMUL##x##NR##_t_node				\
-	= riscv_vector_type ("vuint" #SEW "m" #LMUL "x" #NR "_t",	\
-			     unsigned_int##SMODE_PREFIX_UPPER##I_type_node,\
-			     VMODE_PREFIX_UPPER##Imode);
+        = riscv_vector_tuple_type ("vuint" #SEW "m" #LMUL "x" #NR "_t",	\
+				   rvvuint##SEW##m##LMUL##_t_node,	\
+				   VMODE_PREFIX_UPPER##Imode,		\
+				   NR);
 
 _RVV_SEG_ARG (RISCV_DEFINE_SEG_TYPES, X)
 

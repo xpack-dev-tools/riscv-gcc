@@ -129,6 +129,18 @@ vcopy_u##SEW##m##LMUL##x##NF (vuint##SEW##m##LMUL##x##NF##_t a)	\
 {									\
   return a;								\
 }									\
+__extension__ extern __inline vint##SEW##m##LMUL##x##NF##_t		\
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
+vundefined_i##SEW##m##LMUL##x##NF ()					\
+{									\
+  return __builtin_riscv_vundefined_i##SEW##m##LMUL##x##NF ();		\
+}									\
+__extension__ extern __inline vuint##SEW##m##LMUL##x##NF##_t		\
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
+vundefined_u##SEW##m##LMUL##x##NF ()					\
+{									\
+  return __builtin_riscv_vundefined_u##SEW##m##LMUL##x##NF ();		\
+}									\
 
 _RVV_INT_TUPLE_ITERATOR_ARG (_RVVINT_TUPLE_COPY, )
 
@@ -138,6 +150,12 @@ __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vcopy_f##SEW##m##LMUL##x##NF (vfloat##SEW##m##LMUL##x##NF##_t a)	\
 {									\
   return a;								\
+}									\
+__extension__ extern __inline vfloat##SEW##m##LMUL##x##NF##_t		\
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
+vundefined_f##SEW##m##LMUL##x##NF ()					\
+{									\
+  return __builtin_riscv_vundefined_f##SEW##m##LMUL##x##NF ();		\
 }									\
 
 _RVV_FLOAT_TUPLE_ITERATOR_ARG (_RVVFLOAT_TUPLE_COPY, )
@@ -759,7 +777,7 @@ __extension__ extern __inline vfloat##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vundefined_f##SEW##m##LMUL ()						\
 {									\
-  return vsplat_s_f##SEW##m##LMUL (0.0);				\
+  return __builtin_riscv_vundefined_f##SEW##m##LMUL ();		\
 }
 
 _RVV_FLOAT_ITERATOR_ARG (_RVV_FLOAT_SPLAT_OP, vec_duplicate)
@@ -799,7 +817,7 @@ __extension__ extern __inline vint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vundefined_i##SEW##m##LMUL ()						\
 {									\
-  return vsplat_s_i##SEW##m##LMUL (0);					\
+  return __builtin_riscv_vundefined_i##SEW##m##LMUL ();			\
 }									\
 __extension__ extern __inline vuint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
@@ -811,7 +829,7 @@ __extension__ extern __inline vuint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vundefined_u##SEW##m##LMUL ()						\
 {									\
-  return vsplat_s_u##SEW##m##LMUL (0);					\
+  return __builtin_riscv_vundefined_u##SEW##m##LMUL ();			\
 }
 
 _RVV_INT_ITERATOR_ARG (_RVV_INT_UNARY_SPLAT_OP, vec_duplicate)
@@ -3223,25 +3241,25 @@ _RVV_WFLOAT_ITERATOR_ARG (_RVV_FWREDUC_OP, osum)
 #define _RVV_VREINTERPRET(SEW, LMUL, MLEN, T)				\
 __extension__ extern __inline vfloat##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
-vreinterpret_f##SEW##_i##SEW##_f##SEW##m##LMUL (vint##SEW##m##LMUL##_t a)\
+vreinterpret_v_i##SEW##m##LMUL##_f##SEW##m##LMUL (vint##SEW##m##LMUL##_t a)\
 {									\
   return __builtin_riscv_vreinterpret_f##SEW##_i##SEW##_v_##SEW##m##LMUL (a);\
 }									\
 __extension__ extern __inline vfloat##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
-vreinterpret_f##SEW##_u##SEW##_f##SEW##m##LMUL (vuint##SEW##m##LMUL##_t a)\
+vreinterpret_v_u##SEW##m##LMUL##_f##SEW##m##LMUL (vuint##SEW##m##LMUL##_t a)\
 {									\
   return __builtin_riscv_vreinterpret_f##SEW##_u##SEW##_v_##SEW##m##LMUL (a);\
 }									\
 __extension__ extern __inline vint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
-vreinterpret_i##SEW##_f##SEW##_i##SEW##m##LMUL (vfloat##SEW##m##LMUL##_t a)\
+vreinterpret_v_f##SEW##m##LMUL##_i##SEW##m##LMUL (vfloat##SEW##m##LMUL##_t a)\
 {									\
   return __builtin_riscv_vreinterpret_i##SEW##_f##SEW##_v_##SEW##m##LMUL (a);\
 }									\
 __extension__ extern __inline vuint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
-vreinterpret_u##SEW##_f##SEW##_u##SEW##m##LMUL (vfloat##SEW##m##LMUL##_t a)\
+vreinterpret_v_f##SEW##m##LMUL##_u##SEW##m##LMUL (vfloat##SEW##m##LMUL##_t a)\
 {									\
   return __builtin_riscv_vreinterpret_u##SEW##_f##SEW##_v_##SEW##m##LMUL (a);\
 }
@@ -3249,13 +3267,13 @@ vreinterpret_u##SEW##_f##SEW##_u##SEW##m##LMUL (vfloat##SEW##m##LMUL##_t a)\
 #define _RVV_VREINTERPRET_INT(SEW, LMUL, MLEN, T)			\
 __extension__ extern __inline vint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
-vreinterpret_i##SEW##_u##SEW##_i##SEW##m##LMUL (vuint##SEW##m##LMUL##_t a)\
+vreinterpret_v_u##SEW##m##LMUL##_i##SEW##m##LMUL (vuint##SEW##m##LMUL##_t a)\
 {									\
   return __builtin_riscv_vreinterpret_i##SEW##_u##SEW##_v_##SEW##m##LMUL (a);\
 }									\
 __extension__ extern __inline vuint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
-vreinterpret_u##SEW##_i##SEW##_u##SEW##m##LMUL (vint##SEW##m##LMUL##_t a)\
+vreinterpret_v_i##SEW##m##LMUL##_u##SEW##m##LMUL (vint##SEW##m##LMUL##_t a)\
 {									\
   return __builtin_riscv_vreinterpret_u##SEW##_i##SEW##_v_##SEW##m##LMUL (a);\
 }

@@ -20,169 +20,6 @@
 
 (include "vector-iterator.md")
 
-
-;; All vector modes supported for whole load/store.
-(define_mode_iterator V1_FIMODES [VNx16QI VNx8HI VNx4SI VNx2DI
-				  VNx8HF VNx4SF VNx2DF])
-
-(define_mode_attr EXT_VIMODES
-  [(VNx16QI "VNx16HI") (VNx32QI "VNx32HI")
-   (VNx64QI "VNx64HI") (VNx128QI "VNx128HI")
-   (VNx8HI "VNx8SI")   (VNx16HI "VNx16SI")
-   (VNx32HI "VNx32SI") (VNx64HI "VNx64SI")
-   (VNx4SI "VNx4DI")   (VNx8SI "VNx8DI")
-   (VNx16SI "VNx16DI") (VNx32SI "VNx32DI")
-   (VNx2DI "VNx2TI")   (VNx4DI "VNx4TI")
-   (VNx8DI "VNx8TI")   (VNx16DI "VNx16TI")])
-
-;; All vector modes supported for narrowing integer alu.
-(define_mode_iterator VNIMODES [VNx16HI VNx32HI VNx64HI
-				VNx8SI VNx16SI VNx32SI
-				VNx4DI VNx8DI VNx16DI])
-
-;; All vector modes supported for FP type-convert.
-(define_mode_iterator CVT_VWIMODES [VNx8HI VNx16HI VNx32HI
-				    VNx4SI VNx8SI VNx16SI])
-
-;; All vector modes supported for widening mode.
-(define_mode_iterator VW_FIMODES [VNx16QI VNx32QI VNx64QI
-				  VNx8HI VNx16HI VNx32HI
-				  VNx4SI VNx8SI VNx16SI
-				  VNx8HF VNx16HF VNx32HF
-				  VNx4SF VNx8SF VNx16SF])
-
-;; All vector modes supported for quad-widening integer alu.
-(define_mode_iterator VQWIMODES [VNx16QI VNx32QI
-				 VNx8HI  VNx16HI])
-
-;; All vector modes supported for quad-narrowing integer alu.
-(define_mode_iterator VQNIMODES [VNx16SI VNx32SI
-				 VNx8DI  VNx16DI])
-
-;; Map a vector int or float mode to narrowing vector mode.
-(define_mode_attr VNMODES
-  [(VNx16HI "VNx16QI") (VNx32HI "VNx32QI") (VNx64HI "VNx64QI")
-   (VNx8SI "VNx8HI")   (VNx16SI "VNx16HI") (VNx32SI "VNx32HI")
-   (VNx4DI "VNx4SI")   (VNx8DI "VNx8SI")   (VNx16DI "VNx16SI")])
-
-;; Map a vector int mode to quad-widening vector mode.
-(define_mode_attr VQWMODES
-  [(VNx16QI "VNx16SI") (VNx32QI "VNx32SI")
-   (VNx8HI  "VNx8DI")  (VNx16HI "VNx16DI")])
-
-;; Map a vector int mode to quad-narrowing vector mode.
-(define_mode_attr VQNMODES
-  [(VNx16SI "VNx16QI") (VNx32SI "VNx32QI")
-   (VNx8DI  "VNx8HI")  (VNx16DI "VNx16HI")])
-
-;; Map a vector float mode to vector widening int mode.
-(define_mode_attr VFWIMODES
-  [(VNx8HF "VNx8SI") (VNx16HF "VNx16SI") (VNx32HF"VNx32SI")
-   (VNx4SF "VNx4DI") (VNx8SF "VNx8DI")   (VNx16SF "VNx16DI")])
-
-;; Map a vector int mode to vector widening float mode.
-(define_mode_attr VIWFMODES
-  [(VNx8HI "VNx8SF") (VNx16HI "VNx16SF") (VNx32HI "VNx32SF")
-   (VNx4SI "VNx4DF") (VNx8SI "VNx8DF")   (VNx16SI "VNx16DF")])
-
-;; Map a vector float mode to a vector widening int mode of the same size.
-(define_mode_attr vfwimodes
-  [(VNx8HF "vnx8si") (VNx16HF "vnx16si") (VNx32HF "vnx32si")
-   (VNx4SF "vnx4di") (VNx8SF "vnx8di")   (VNx16SF "vnx16di")])
-
-;; Map a vector integer mode to a vector widening float mode of the same size.
-(define_mode_attr viwfmodes
-  [(VNx8HI "vnx8sf") (VNx16HI "vnx16sf") (VNx32HI "vnx32sf")
-   (VNx4SI "vnx4df") (VNx8SI "vnx8df")   (VNx16SI "vnx16df")])
-
-;; Map a vector mode to its integer element mode.
-(define_mode_attr VISUBMODE
-  [(VNx16QI "QI") (VNx32QI "QI") (VNx64QI "QI") (VNx128QI "QI")
-   (VNx8HI "HI") (VNx16HI "HI") (VNx32HI "HI") (VNx64HI "HI")
-   (VNx4SI "SI") (VNx8SI "SI") (VNx16SI "SI") (VNx32SI "SI")
-   (VNx2DI "DI") (VNx4DI "DI") (VNx8DI "DI") (VNx16DI "DI")
-   (VNx8HF "HI") (VNx16HF "HI") (VNx32HF "HI") (VNx64HF "HI")
-   (VNx4SF "SI") (VNx8SF "SI") (VNx16SF "SI") (VNx32SF "SI")
-   (VNx2DF "DI") (VNx4DF "DI") (VNx8DF "DI") (VNx16DF "DI")])
-
-;; Map a vector mode to LMUL=1 vector mode.
-(define_mode_attr VSINGLE
-  [(VNx16QI "VNx16QI") (VNx32QI "VNx16QI") (VNx64QI "VNx16QI") (VNx128QI "VNx16QI")
-   (VNx8HI "VNx8HI")   (VNx16HI "VNx8HI")  (VNx32HI "VNx8HI")  (VNx64HI "VNx8HI")
-   (VNx4SI "VNx4SI")   (VNx8SI "VNx4SI")   (VNx16SI "VNx4SI")  (VNx32SI "VNx4SI")
-   (VNx2DI "VNx2DI")   (VNx4DI "VNx2DI")   (VNx8DI "VNx2DI")   (VNx16DI "VNx2DI")
-   (VNx8HF "VNx8HF")   (VNx16HF "VNx8HF")  (VNx32HF "VNx8HF")  (VNx64HF "VNx8HF")
-   (VNx4SF "VNx4SF")   (VNx8SF "VNx4SF")   (VNx16SF "VNx4SF")  (VNx32SF "VNx4SF")
-   (VNx2DF "VNx2DF")   (VNx4DF "VNx2DF")   (VNx8DF "VNx2DF")   (VNx16DF "VNx2DF")])
-
-(define_mode_attr vsingle
-  [(VNx16QI "vnx16qi") (VNx32QI "vnx16qi") (VNx64QI "vnx16qi") (VNx128QI "vnx16qi")
-   (VNx8HI "vnx8hi")   (VNx16HI "vnx8hi")  (VNx32HI "vnx8hi")  (VNx64HI "vnx8hi")
-   (VNx4SI "vnx4si")   (VNx8SI "vnx4si")   (VNx16SI "vnx4si")  (VNx32SI "vnx4si")
-   (VNx2DI "vnx2di")   (VNx4DI "vnx2di")   (VNx8DI "vnx2di")   (VNx16DI "vnx2di")
-   (VNx8HF "vnx8hf")   (VNx16HF "vnx8hf")  (VNx32HF "vnx8hf")  (VNx64HF "vnx8hf")
-   (VNx4SF "vnx4sf")   (VNx8SF "vnx4sf")   (VNx16SF "vnx4sf")  (VNx32SF "vnx4sf")
-   (VNx2DF "vnx2df")   (VNx4DF "vnx2df")   (VNx8DF "vnx2df")   (VNx16DF "vnx2df")])
-
-(define_mode_attr vwimode
-  [(VNx16QI "vnx16hi") (VNx32QI "vnx32hi") (VNx64QI "vnx64hi")
-   (VNx8HI  "vnx8si")  (VNx16HI "vnx16si") (VNx32HI "vnx32si")
-   (VNx4SI  "vnx4di")  (VNx8SI  "vnx8di")  (VNx16SI "vnx16di")])
-
-(define_mode_attr vwfmode
-  [(VNx8HF  "vnx8sf") (VNx16HF "vnx16sf") (VNx32HF "vnx32sf")
-   (VNx4SF  "vnx4df") (VNx8SF  "vnx8df")  (VNx16SF "vnx16df")])
-
-(define_mode_attr vnimode
-  [(VNx16HI "vnx16qi") (VNx32HI "vnx32qi") (VNx64HI "vnx64qi")
-   (VNx8SI  "vnx8hi")  (VNx16SI "vnx16hi") (VNx32SI "vnx32hi")
-   (VNx4DI  "vnx4si")  (VNx8DI  "vnx8si")  (VNx16DI "vnx16si")])
-
-(define_mode_attr vqwimode
-  [(VNx16QI "vnx16si") (VNx32QI "vnx32si")
-   (VNx8HI  "vnx8di")  (VNx16HI "vnx16di")])
-
-(define_mode_attr vqnimode
-  [(VNx16SI "vnx16qi") (VNx32SI "vnx32qi")
-   (VNx8DI  "vnx8hi")  (VNx16DI "vnx16hi")])
-
-;; Map a vector mode to its EEW value.
-(define_mode_attr eew
-  [(VNx16QI "8") (VNx32QI "8") (VNx64QI "8") (VNx128QI "8")
-   (VNx8HI "16") (VNx16HI "16") (VNx32HI "16") (VNx64HI "16")
-   (VNx4SI "32") (VNx8SI "32") (VNx16SI "32") (VNx32SI "32")
-   (VNx2DI "64") (VNx4DI "64") (VNx8DI "64") (VNx16DI "64")
-   (VNx8HF "16") (VNx16HF "16") (VNx32HF "16") (VNx64HF "16")
-   (VNx4SF "32") (VNx8SF "32") (VNx16SF "32") (VNx32SF "32")
-   (VNx2DF "64") (VNx4DF "64") (VNx8DF "64") (VNx16DF "64")])
-
-;; The number of subvectors in a VMODES.
-(define_mode_attr vector_count
-  [(VNx16QI "1") (VNx32QI "2") (VNx64QI "4") (VNx128QI "8")
-   (VNx8HI "1")  (VNx16HI "2") (VNx32HI "4") (VNx64HI "8")
-   (VNx4SI "1")  (VNx8SI "2")  (VNx16SI "4") (VNx32SI "8")
-   (VNx2DI "1")  (VNx4DI "2")  (VNx8DI "4")  (VNx16DI "8")
-   (VNx8HF "1")  (VNx16HF "2") (VNx32HF "4") (VNx64HF "8")
-   (VNx4SF "1")  (VNx8SF "2")  (VNx16SF "4") (VNx32SF "8")
-   (VNx2DF "1")  (VNx4DF "2")  (VNx8DF "4")  (VNx16DF "8")])
-
-;; Map a vector mode to nf field.
-(define_mode_attr nf
-  [(VNx16QI "1") (VNx32QI "2") (VNx64QI "4") (VNx128QI "8")
-   (VNx8HI "1") (VNx16HI "2") (VNx32HI "4") (VNx64HI "8")
-   (VNx4SI "1") (VNx8SI "2") (VNx16SI "4") (VNx32SI "8")
-   (VNx2DI "1") (VNx4DI "2") (VNx8DI "4") (VNx16DI "8")
-   (VNx8HF "1") (VNx16HF "2") (VNx32HF "4") (VNx64HF "8")
-   (VNx4SF "1") (VNx8SF "2") (VNx16SF "4") (VNx32SF "8")
-   (VNx2DF "1") (VNx4DF "2") (VNx8DF "4") (VNx16DF "8")])
-
-;; Equivalent of "size" for a vector element.
-(define_mode_attr vmsize
-  [(VNx16QI "b") (VNx32QI "b") (VNx64QI "b") (VNx128QI "b")
-   (VNx8HI "h") (VNx16HI "h") (VNx32HI "h") (VNx64HI "h")
-   (VNx4SI "w") (VNx8SI "w") (VNx16SI "w") (VNx32SI "w")
-   (VNx2DI "d") (VNx4DI "d") (VNx8DI "d") (VNx16DI "d")])
-
 ;; Operations valid for integer reductions.
 (define_code_iterator any_reduc [plus umax smax umin smin and ior xor])
 
@@ -408,21 +245,21 @@
 ;; distinction does not.  Also, the int modes are a superset of the float
 ;; modes.
 
-(define_insn "riscv_vsetvl<VIMODES:vememode><VIMODES:vmmode>_<P:mode>"
+(define_insn "riscv_vsetvl<VIMODES:sew>m<VIMODES:lmul>_<P:mode>"
   [(set (match_operand:P 0 "register_operand" "=r")
 	(unspec_volatile:P [(match_operand:P 1 "register_operand" "r")]
 			   UNSPECV_VSETVL))
    (set (reg:SI VL_REGNUM) (unspec_volatile:SI [(match_dup 1)] UNSPECV_VSETVL))
    (set (reg:VIMODES VTYPE_REGNUM) (const_int UNSPECV_VSETVL))]
   "TARGET_VECTOR"
-  "vsetvli\t%0,%1,<VIMODES:vemode>,<VIMODES:vmmode>"
+  "vsetvli\t%0,%1,e<VIMODES:sew>,m<VIMODES:lmul>"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
 (define_insn "vsetvli_x0_<mode>"
   [(set (reg:VIMODES VTYPE_REGNUM) (const_int UNSPECV_VSETVL))]
   "TARGET_VECTOR"
-  "vsetvli\tx0,x0,<vemode>,<vmmode>"
+  "vsetvli\tx0,x0,e<sew>,m<lmul>"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -469,7 +306,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vle<eew>.v\t%0,%1,%2.t"
+  "vle<sew>.v\t%0,%1,%2.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -513,7 +350,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vse<eew>.v\t%2,%0,%1.t"
+  "vse<sew>.v\t%2,%0,%1.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -547,7 +384,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vlse<eew>.v\t%0,(%1),%2"
+  "vlse<sew>.v\t%0,(%1),%2"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -585,7 +422,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vlse<eew>.v\t%0,(%1),%2,%3.t"
+  "vlse<sew>.v\t%0,(%1),%2,%3.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -617,7 +454,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vsse<eew>.v\t%0,(%1),%2"
+  "vsse<sew>.v\t%0,(%1),%2"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -651,7 +488,7 @@
 	  UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vsse<eew>.v\t%0,(%1),%2,%3.t"
+  "vsse<sew>.v\t%0,(%1),%2,%3.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -694,7 +531,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "vlxei<VIMODES:eew>.v\t%0,(%1),%2"
+  "vlxei<VIMODES:sew>.v\t%0,(%1),%2"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -736,7 +573,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "vlxei<VIMODES:eew>.v\t%0,(%1),%2,%5.t"
+  "vlxei<VIMODES:sew>.v\t%0,(%1),%2,%5.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -774,7 +611,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "vlxei<VIMODES:eew>.v\t%0,(%1),%2"
+  "vlxei<VIMODES:sew>.v\t%0,(%1),%2"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -814,7 +651,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "vlxei<VIMODES:eew>.v\t%0,(%3),%4,%1.t"
+  "vlxei<VIMODES:sew>.v\t%0,(%3),%4,%1.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -857,7 +694,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "vsxei<VIMODES:eew>.v\t%4,(%0),%1"
+  "vsxei<VIMODES:sew>.v\t%4,(%0),%1"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -899,7 +736,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "vsxei<VIMODES:eew>.v\t%4,(%0),%1,%5.t"
+  "vsxei<VIMODES:sew>.v\t%4,(%0),%1,%5.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -937,7 +774,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "vs<order>xei<VIMODES:eew>.v\t%2,(%0),%1"
+  "vs<order>xei<VIMODES:sew>.v\t%2,(%0),%1"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -975,7 +812,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "vs<order>xei<VIMODES:eew>.v\t%3,(%1),%2,%0.t"
+  "vs<order>xei<VIMODES:sew>.v\t%3,(%1),%2,%0.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -1010,7 +847,7 @@
 	{
 	  /* The whole register move load/store instructions
 	     only support in LMUL is 1. If LMUL more than 1, then spilt it. */
-	  if (<vector_count> == 1)
+	  if (<lmul> == 1)
 	    emit_insn (gen_whole_mov<vsingle>_lmul1 (operands[0], operands[1]));
 	  else
 	    {
@@ -1025,7 +862,6 @@
 	}
       else
 	{
-	  gcc_assert (can_create_pseudo_p ());
 	  rtx dup_value;
 
 	  if ((satisfies_constraint_vi (operands[1])
@@ -1034,6 +870,7 @@
 	      || ((const_vec_duplicate_p (operands[1], &dup_value))
 		  && FLOAT_MODE_P (<MODE>mode)))
 	    {
+	      gcc_assert (can_create_pseudo_p ());
 	      rtx vtype_reg = gen_rtx_REG (Pmode, VTYPE_REGNUM);
 	      rtx save_reg = gen_reg_rtx (Pmode);
 	      rtx tmp_reg = gen_reg_rtx (<VSUBMODE>mode);
@@ -1059,8 +896,6 @@
     }
   else
     {
-      gcc_assert (can_create_pseudo_p ());
-
       rtx dup_value;
 
       /* If we have a const vector, then we have to load it's value into the
@@ -1071,6 +906,7 @@
 	  || ((const_vec_duplicate_p (operands[1], &dup_value))
 	      && FLOAT_MODE_P (<MODE>mode)))
 	{
+	  gcc_assert (can_create_pseudo_p ());
 	  rtx tmp_reg = gen_reg_rtx (<VSUBMODE>mode);
 
 	  emit_move_insn (tmp_reg, dup_value);
@@ -1100,8 +936,8 @@
   "@
    vmv.v.v\t%0,%1
    vmv.v.i\t%0,%1
-   vle<eew>.v\t%0,%1
-   vse<eew>.v\t%1,%0"
+   vle<sew>.v\t%0,%1
+   vse<sew>.v\t%1,%0"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -1115,8 +951,8 @@
   "TARGET_VECTOR && TARGET_HARD_FLOAT"
   "@
    vmv.v.v\t%0,%1
-   vle<eew>.v\t%0,%1
-   vse<eew>.v\t%1,%0"
+   vle<sew>.v\t%0,%1
+   vse<sew>.v\t%1,%0"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -1132,7 +968,7 @@
    && !(memory_operand (operands[0], <VMODES:MODE>mode)
         && memory_operand (operands[1], <VMODES:MODE>mode))"
   "@
-   vmv<nf>r.v\t%0,%1
+   vmv<lmul>r.v\t%0,%1
    #
    #"
   "&& reload_completed
@@ -1167,7 +1003,7 @@
   emit_move_insn (operands[2], XEXP (mem, 0));
   emit_move_insn (operands[3], vlenb);
 
-  for (unsigned int step = 0; step < <vector_count>; ++step)
+  for (unsigned int step = 0; step < <lmul>; ++step)
     {
       rtx submem = adjust_automodify_address (mem, <VSINGLE>mode,
 					      operands[2],
@@ -2784,12 +2620,12 @@
 
 (define_expand "w<add_sub:optab><any_extend:u><mode>_vv"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(any_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(any_extend:<VWMODE>
 			  (match_operand:VWIMODES 1 "register_operand"))
-			(any_extend:<VWMODES>
+			(any_extend:<VWMODE>
 			  (match_operand:VWIMODES 2 "register_operand")))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -2799,12 +2635,12 @@
 })
 
 (define_insn "*w<add_sub:optab><any_extend:u><mode>_vv_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (any_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (any_extend:<VWMODE>
 	       (match_operand:VWIMODES 1 "register_operand" "vr"))
-	     (any_extend:<VWMODES>
+	     (any_extend:<VWMODE>
 	       (match_operand:VWIMODES 2 "register_operand" "vr")))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -2816,12 +2652,12 @@
 
 (define_expand "w<add_sub:optab><any_extend:u><mode>_vv_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(any_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(any_extend:<VWMODE>
 			  (match_operand:VWIMODES 1 "register_operand"))
-			(any_extend:<VWMODES>
+			(any_extend:<VWMODE>
 			  (vec_duplicate:VWIMODES
 			    (match_operand:<VSUBMODE> 2 "register_operand"))))
 		      (reg:SI VL_REGNUM)]
@@ -2832,12 +2668,12 @@
 })
 
 (define_insn "*w<add_sub:optab><any_extend:u><mode>_vv_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (any_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (any_extend:<VWMODE>
 	       (match_operand:VWIMODES 1 "register_operand" "vr"))
-	     (any_extend:<VWMODES>
+	     (any_extend:<VWMODE>
 	       (vec_duplicate:VWIMODES
 		 (match_operand:<VSUBMODE> 2 "register_operand" "r"))))
 	   (reg:SI VL_REGNUM)]
@@ -2850,16 +2686,16 @@
 
 (define_expand "w<add_sub:optab><any_extend:u><mode>_vv_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(add_sub:<VWMODES>
-			  (any_extend:<VWMODES>
+			(add_sub:<VWMODE>
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand"))
-			  (any_extend:<VWMODES>
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 4 "register_operand")))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -2868,16 +2704,16 @@
 })
 
 (define_insn "*w<add_sub:optab><any_extend:u><mode>_vv_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (add_sub:<VWMODES>
-	       (any_extend:<VWMODES>
+	     (add_sub:<VWMODE>
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 3 "register_operand" "vr"))
-	       (any_extend:<VWMODES>
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 4 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -2888,17 +2724,17 @@
 
 (define_expand "w<add_sub:optab><any_extend:u><mode>_vv_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(add_sub:<VWMODES>
-			  (any_extend:<VWMODES>
+			(add_sub:<VWMODE>
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand"))
-			  (any_extend:<VWMODES>
+			  (any_extend:<VWMODE>
 			    (vec_duplicate:VWIMODES
 			      (match_operand:<VSUBMODE> 4 "register_operand"))))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -2907,17 +2743,17 @@
 })
 
 (define_insn "*w<add_sub:optab><any_extend:u><mode>_vv_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (add_sub:<VWMODES>
-	       (any_extend:<VWMODES>
+	     (add_sub:<VWMODE>
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 3 "register_operand" "vr"))
-	       (any_extend:<VWMODES>
+	       (any_extend:<VWMODE>
 		 (vec_duplicate:VWIMODES
 		   (match_operand:<VSUBMODE> 4 "register_operand" "r"))))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -2928,11 +2764,11 @@
 
 (define_expand "w<add_sub:optab><any_extend:u><mode>_wv"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(match_operand:<VWMODES> 1 "register_operand")
-			(any_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(match_operand:<VWMODE> 1 "register_operand")
+			(any_extend:<VWMODE>
 			  (match_operand:VWIMODES 2 "register_operand")))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -2942,11 +2778,11 @@
 })
 
 (define_insn "*w<add_sub:optab><any_extend:u><mode>_wv_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (match_operand:<VWMODES> 1 "register_operand" "vr")
-	     (any_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (match_operand:<VWMODE> 1 "register_operand" "vr")
+	     (any_extend:<VWMODE>
 	       (match_operand:VWIMODES 2 "register_operand" "vr")))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -2958,11 +2794,11 @@
 
 (define_expand "w<add_sub:optab><any_extend:u><mode>_wv_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(match_operand:<VWMODES> 1 "register_operand")
-			(any_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(match_operand:<VWMODE> 1 "register_operand")
+			(any_extend:<VWMODE>
 			  (vec_duplicate:VWIMODES
 			    (match_operand:<VSUBMODE> 2 "register_operand"))))
 		      (reg:SI VL_REGNUM)]
@@ -2973,11 +2809,11 @@
 })
 
 (define_insn "*w<add_sub:optab><any_extend:u><mode>_wv_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (match_operand:<VWMODES> 1 "register_operand" "vr")
-	     (any_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (match_operand:<VWMODE> 1 "register_operand" "vr")
+	     (any_extend:<VWMODE>
 	       (vec_duplicate:VWIMODES
 		 (match_operand:<VSUBMODE> 2 "register_operand" "r"))))
 	   (reg:SI VL_REGNUM)]
@@ -2990,15 +2826,15 @@
 
 (define_expand "w<add_sub:optab><any_extend:u><mode>_wv_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(add_sub:<VWMODES>
-			  (match_operand:<VWMODES> 3 "register_operand")
-			  (any_extend:<VWMODES>
+			(add_sub:<VWMODE>
+			  (match_operand:<VWMODE> 3 "register_operand")
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 4 "register_operand")))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -3007,15 +2843,15 @@
 })
 
 (define_insn "*w<add_sub:optab><any_extend:u><mode>_wv_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (add_sub:<VWMODES>
-	       (match_operand:<VWMODES> 3 "register_operand" "vr")
-	       (any_extend:<VWMODES>
+	     (add_sub:<VWMODE>
+	       (match_operand:<VWMODE> 3 "register_operand" "vr")
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 4 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -3026,16 +2862,16 @@
 
 (define_expand "w<add_sub:optab><any_extend:u><mode>_wv_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(add_sub:<VWMODES>
-			  (match_operand:<VWMODES> 3 "register_operand")
-			  (any_extend:<VWMODES>
+			(add_sub:<VWMODE>
+			  (match_operand:<VWMODE> 3 "register_operand")
+			  (any_extend:<VWMODE>
 			    (vec_duplicate:VWIMODES
 			      (match_operand:<VSUBMODE> 4 "register_operand"))))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -3044,16 +2880,16 @@
 })
 
 (define_insn "*w<add_sub:optab><any_extend:u><mode>_wv_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (add_sub:<VWMODES>
-	       (match_operand:<VWMODES> 3 "register_operand" "vr")
-	       (any_extend:<VWMODES>
+	     (add_sub:<VWMODE>
+	       (match_operand:<VWMODE> 3 "register_operand" "vr")
+	       (any_extend:<VWMODE>
 		 (vec_duplicate:VWIMODES
 		   (match_operand:<VSUBMODE> 4 "register_operand" "r"))))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -3064,11 +2900,11 @@
 
 ;;Vector Widening Sign-extend and Zero-extend
 
-(define_expand "wcvt<u><mode><vwimode>2"
+(define_expand "wcvt<u><mode><vwmode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(any_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(any_extend:<VWMODE>
 			(match_operand:VWIMODES 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -3077,10 +2913,10 @@
 {
 })
 
-(define_insn "*wcvt<u><mode><vwimode>2_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(any_extend:<VWMODES>
+(define_insn "*wcvt<u><mode><vwmode>2_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(any_extend:<VWMODE>
 	     (match_operand:VWIMODES 1 "register_operand" "vr"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -3090,15 +2926,15 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "wcvt<u><mode><vwimode>2_mask"
+(define_expand "wcvt<u><mode><vwmode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(any_extend:<VWMODES>
+			(any_extend:<VWMODE>
 			  (match_operand:VWIMODES 3 "register_operand"))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -3106,14 +2942,14 @@
 {
 })
 
-(define_insn "*wcvt<u><mode><vwimode>2_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+(define_insn "*wcvt<u><mode><vwmode>2_mask_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (any_extend:<VWMODES>
+	     (any_extend:<VWMODE>
 	       (match_operand:VWIMODES 3 "register_operand" "vr"))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -3122,59 +2958,59 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<sz_op>extend<vnimode><mode>2"
-  [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:VNIMODES 0 "register_operand")
-		   (unspec:VNIMODES
-		     [(any_extend:VNIMODES
-			(match_operand:<VNMODES> 1 "register_operand"))
+(define_expand "<sz_op>extend<mode><vwmode>2"
+  [(set (reg:<VWVLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(any_extend:<VWMODE>
+			(match_operand:VWIMODES 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
-	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
+	      (use (reg:<VWVLMODE> VTYPE_REGNUM))])]
   "TARGET_VECTOR"
 {
 })
 
-(define_insn "*<sz_op>extend<vnimode><mode>2_nosetvl"
-  [(set (match_operand:VNIMODES 0 "register_operand" "=&vr")
-	(unspec:VNIMODES
-	  [(any_extend:VNIMODES
-	     (match_operand:<VNMODES> 1 "register_operand" "vr"))
+(define_insn "*<sz_op>extend<mode><vwmode>2_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(any_extend:<VWMODE>
+	     (match_operand:VWIMODES 1 "register_operand" "vr"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
-   (use (reg:<VLMODE> VTYPE_REGNUM))]
+   (use (reg:<VWVLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
   "v<sz>ext.vf2\t%0,%1"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<sz_op>extend<vnimode><mode>2_mask"
-  [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:VNIMODES 0 "register_operand")
-		   (unspec:VNIMODES
-		     [(if_then_else:VNIMODES
+(define_expand "<sz_op>extend<mode><vwmode>2_mask"
+  [(set (reg:<VWVLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(any_extend:VNIMODES
-			  (match_operand:<VNMODES> 3 "register_operand"))
-			(match_operand:VNIMODES 2 "register_operand"))
+			(any_extend:<VWMODE>
+			  (match_operand:VWIMODES 3 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
-	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
+	      (use (reg:<VWVLMODE> VTYPE_REGNUM))])]
   "TARGET_VECTOR"
 {
 })
 
-(define_insn "*<sz_op>extend<mode><vnimode>2_mask_nosetvl"
-  [(set (match_operand:VNIMODES 0 "register_operand" "=vr")
-	(unspec:VNIMODES
-	  [(if_then_else:VNIMODES
+(define_insn "*<sz_op>extend<mode><vwmode>2_mask_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (any_extend:VNIMODES
-	       (match_operand:<VNMODES> 3 "register_operand" "vr"))
-	     (match_operand:VNIMODES 2 "register_operand" "0"))
+	     (any_extend:<VWMODE>
+	       (match_operand:VWIMODES 3 "register_operand" "vr"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
-   (use (reg:<VLMODE> VTYPE_REGNUM))]
+   (use (reg:<VWVLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
   "v<sz>ext.vf2\t%0,%3,%1.t"
   [(set_attr "type" "vector")
@@ -3182,59 +3018,59 @@
 
 ;;Vector Quad-Widening Sign-extend and Zero-extend
 
-(define_expand "<sz_op>extend<vqnimode><mode>2"
-  [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:VQNIMODES 0 "register_operand")
-		   (unspec:VQNIMODES
-		     [(any_extend:VQNIMODES
-			(match_operand:<VQNMODES> 1 "register_operand"))
+(define_expand "<sz_op>extend<mode><vqwmode>2"
+  [(set (reg:<VQWVLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(any_extend:<VQWMODE>
+			(match_operand:VQWIMODES 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
-	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
+	      (use (reg:<VQWVLMODE> VTYPE_REGNUM))])]
   "TARGET_VECTOR"
 {
 })
 
-(define_insn "*<sz_op>extend<vqnimode><mode>2_nosetvl"
-  [(set (match_operand:VQNIMODES 0 "register_operand" "=&vr")
-	(unspec:VQNIMODES
-	  [(any_extend:VQNIMODES
-	     (match_operand:<VQNMODES> 1 "register_operand" "vr"))
+(define_insn "*<sz_op>extend<mode><vqwmode>2_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VQWMODE>
+	  [(any_extend:<VQWMODE>
+	     (match_operand:VQWIMODES 1 "register_operand" "vr"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
-   (use (reg:<VLMODE> VTYPE_REGNUM))]
+   (use (reg:<VQWVLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
   "v<sz>ext.vf4\t%0,%1"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<sz_op>extend<vqnimode><mode>2_mask"
-  [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:VQNIMODES 0 "register_operand")
-		   (unspec:VQNIMODES
-		     [(if_then_else:VQNIMODES
+(define_expand "<sz_op>extend<mode><vqwmode>2_mask"
+  [(set (reg:<VQWVLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(if_then_else:<VQWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(any_extend:VQNIMODES
-			  (match_operand:<VQNMODES> 3 "register_operand"))
-			(match_operand:VQNIMODES 2 "register_operand"))
+			(any_extend:<VQWMODE>
+			  (match_operand:VQWIMODES 3 "register_operand"))
+			(match_operand:<VQWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
-	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
+	      (use (reg:<VQWVLMODE> VTYPE_REGNUM))])]
   "TARGET_VECTOR"
 {
 })
 
-(define_insn "*<sz_op>extend<vqnimode><mode>2_mask_nosetvl"
-  [(set (match_operand:VQNIMODES 0 "register_operand" "=vr")
-	(unspec:VQNIMODES
-	  [(if_then_else:VQNIMODES
+(define_insn "*<sz_op>extend<mode><vqwmode>2_mask_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=vr")
+	(unspec:<VQWMODE>
+	  [(if_then_else:<VQWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (any_extend:VQNIMODES
-	       (match_operand:<VQNMODES> 3 "register_operand" "vr"))
-	     (match_operand:VQNIMODES 2 "register_operand" "0"))
+	     (any_extend:<VQWMODE>
+	       (match_operand:VQWIMODES 3 "register_operand" "vr"))
+	     (match_operand:<VQWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
-   (use (reg:<VLMODE> VTYPE_REGNUM))]
+   (use (reg:<VQWVLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
   "v<sz>ext.vf4\t%0,%3,%1.t"
   [(set_attr "type" "vector")
@@ -3304,12 +3140,12 @@
 
 (define_expand "fw<optab><mode>_vv"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(float_extend:<VWMODE>
 			  (match_operand:VWFMODES 1 "register_operand"))
-			(float_extend:<VWMODES>
+			(float_extend:<VWMODE>
 			  (match_operand:VWFMODES 2 "register_operand")))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -3319,12 +3155,12 @@
 })
 
 (define_insn "*fw<optab><mode>_vv_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (float_extend:<VWMODE>
 	       (match_operand:VWFMODES 1 "register_operand" "vr"))
-	     (float_extend:<VWMODES>
+	     (float_extend:<VWMODE>
 	       (match_operand:VWFMODES 2 "register_operand" "vr")))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -3336,12 +3172,12 @@
 
 (define_expand "fw<optab><mode>_vv_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(float_extend:<VWMODE>
 			  (match_operand:VWFMODES 1 "register_operand"))
-			(float_extend:<VWMODES>
+			(float_extend:<VWMODE>
 			  (vec_duplicate:VWFMODES
 			    (match_operand:<VSUBMODE> 2 "register_operand"))))
 		      (reg:SI VL_REGNUM)]
@@ -3352,12 +3188,12 @@
 })
 
 (define_insn "*fw<optab><mode>_vv_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (float_extend:<VWMODE>
 	       (match_operand:VWFMODES 1 "register_operand" "vr"))
-	     (float_extend:<VWMODES>
+	     (float_extend:<VWMODE>
 	       (vec_duplicate:VWFMODES
 		 (match_operand:<VSUBMODE> 2 "register_operand" "f"))))
 	   (reg:SI VL_REGNUM)]
@@ -3370,16 +3206,16 @@
 
 (define_expand "fw<optab><mode>_vv_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(add_sub:<VWMODES>
-			  (float_extend:<VWMODES>
+			(add_sub:<VWMODE>
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 3 "register_operand"))
-			  (float_extend:<VWMODES>
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 4 "register_operand")))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -3388,16 +3224,16 @@
 })
 
 (define_insn "*fw<optab><mode>_vv_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (add_sub:<VWMODES>
-	       (float_extend:<VWMODES>
+	     (add_sub:<VWMODE>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 3 "register_operand" "vr"))
-	       (float_extend:<VWMODES>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 4 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -3408,17 +3244,17 @@
 
 (define_expand "fw<optab><mode>_vv_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(add_sub:<VWMODES>
-			  (float_extend:<VWMODES>
+			(add_sub:<VWMODE>
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 3 "register_operand"))
-			  (float_extend:<VWMODES>
+			  (float_extend:<VWMODE>
 			    (vec_duplicate:VWFMODES
 			      (match_operand:<VSUBMODE> 4 "register_operand"))))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -3427,17 +3263,17 @@
 })
 
 (define_insn "*fw<optab><mode>_vv_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (add_sub:<VWMODES>
-	       (float_extend:<VWMODES>
+	     (add_sub:<VWMODE>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 3 "register_operand" "vr"))
-	       (float_extend:<VWMODES>
+	       (float_extend:<VWMODE>
 		 (vec_duplicate:VWFMODES
 		   (match_operand:<VSUBMODE> 4 "register_operand" "f"))))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -3448,11 +3284,11 @@
 
 (define_expand "fw<optab><mode>_wv"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(match_operand:<VWMODES> 1 "register_operand")
-			(float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(match_operand:<VWMODE> 1 "register_operand")
+			(float_extend:<VWMODE>
 			  (match_operand:VWFMODES 2 "register_operand")))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -3462,11 +3298,11 @@
 })
 
 (define_insn "*fw<optab><mode>_wv_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (match_operand:<VWMODES> 1 "register_operand" "vr")
-	     (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (match_operand:<VWMODE> 1 "register_operand" "vr")
+	     (float_extend:<VWMODE>
 	       (match_operand:VWFMODES 2 "register_operand" "vr")))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -3478,11 +3314,11 @@
 
 (define_expand "fw<optab><mode>_wv_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(match_operand:<VWMODES> 1 "register_operand")
-			(float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(match_operand:<VWMODE> 1 "register_operand")
+			(float_extend:<VWMODE>
 			  (vec_duplicate:VWFMODES
 			    (match_operand:<VSUBMODE> 2 "register_operand"))))
 		      (reg:SI VL_REGNUM)]
@@ -3493,11 +3329,11 @@
 })
 
 (define_insn "*fw<optab><mode>_wv_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (match_operand:<VWMODES> 1 "register_operand" "vr")
-	     (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (match_operand:<VWMODE> 1 "register_operand" "vr")
+	     (float_extend:<VWMODE>
 	       (vec_duplicate:VWFMODES
 		 (match_operand:<VSUBMODE> 2 "register_operand" "f"))))
 	   (reg:SI VL_REGNUM)]
@@ -3510,15 +3346,15 @@
 
 (define_expand "fw<optab><mode>_wv_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(add_sub:<VWMODES>
-			  (match_operand:<VWMODES> 3 "register_operand")
-			  (float_extend:<VWMODES>
+			(add_sub:<VWMODE>
+			  (match_operand:<VWMODE> 3 "register_operand")
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 4 "register_operand")))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -3527,15 +3363,15 @@
 })
 
 (define_insn "*fw<optab><mode>_wv_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (add_sub:<VWMODES>
-	       (match_operand:<VWMODES> 3 "register_operand" "vr")
-	       (float_extend:<VWMODES>
+	     (add_sub:<VWMODE>
+	       (match_operand:<VWMODE> 3 "register_operand" "vr")
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 4 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -3546,16 +3382,16 @@
 
 (define_expand "fw<optab><mode>_wv_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(add_sub:<VWMODES>
-			  (match_operand:<VWMODES> 3 "register_operand")
-			  (float_extend:<VWMODES>
+			(add_sub:<VWMODE>
+			  (match_operand:<VWMODE> 3 "register_operand")
+			  (float_extend:<VWMODE>
 			    (vec_duplicate:VWFMODES
 			      (match_operand:<VSUBMODE> 4 "register_operand"))))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -3564,16 +3400,16 @@
 })
 
 (define_insn "*fw<optab><mode>_wv_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (add_sub:<VWMODES>
-	       (match_operand:<VWMODES> 3 "register_operand" "vr")
-	       (float_extend:<VWMODES>
+	     (add_sub:<VWMODE>
+	       (match_operand:<VWMODE> 3 "register_operand" "vr")
+	       (float_extend:<VWMODE>
 		 (vec_duplicate:VWFMODES
 		   (match_operand:<VSUBMODE> 4 "register_operand" "f"))))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -4149,12 +3985,12 @@
 
 (define_expand "fwmul<mode>_vv"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(mult:<VWMODES>
-			(float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(mult:<VWMODE>
+			(float_extend:<VWMODE>
 			  (match_operand:VWFMODES 1 "register_operand"))
-			(float_extend:<VWMODES>
+			(float_extend:<VWMODE>
 			  (match_operand:VWFMODES 2 "register_operand")))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -4164,12 +4000,12 @@
 })
 
 (define_insn "*fwmul<mode>_vv_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(mult:<VWMODES>
-	     (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(mult:<VWMODE>
+	     (float_extend:<VWMODE>
 	       (match_operand:VWFMODES 1 "register_operand" "vr"))
-	     (float_extend:<VWMODES>
+	     (float_extend:<VWMODE>
 	       (match_operand:VWFMODES 2 "register_operand" "vr")))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -4181,12 +4017,12 @@
 
 (define_expand "fwmul<mode>_vv_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(mult:<VWMODES>
-			(float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(mult:<VWMODE>
+			(float_extend:<VWMODE>
 			  (match_operand:VWFMODES 1 "register_operand"))
-			(float_extend:<VWMODES>
+			(float_extend:<VWMODE>
 			  (vec_duplicate:VWFMODES
 			    (match_operand:<VSUBMODE> 2 "register_operand"))))
 		      (reg:SI VL_REGNUM)]
@@ -4197,12 +4033,12 @@
 })
 
 (define_insn "*fwmul<mode>_vv_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(mult:<VWMODES>
-	     (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(mult:<VWMODE>
+	     (float_extend:<VWMODE>
 	       (match_operand:VWFMODES 1 "register_operand" "vr"))
-	     (float_extend:<VWMODES>
+	     (float_extend:<VWMODE>
 	       (vec_duplicate:VWFMODES
 		 (match_operand:<VSUBMODE> 2 "register_operand" "f"))))
 	   (reg:SI VL_REGNUM)]
@@ -4215,16 +4051,16 @@
 
 (define_expand "fwmul<mode>_vv_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(mult:<VWMODES>
-			  (float_extend:<VWMODES>
+			(mult:<VWMODE>
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 3 "register_operand"))
-			  (float_extend:<VWMODES>
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 4 "register_operand")))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -4233,16 +4069,16 @@
 })
 
 (define_insn "*fwmul<mode>_vv_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (mult:<VWMODES>
-	       (float_extend:<VWMODES>
+	     (mult:<VWMODE>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 3 "register_operand" "vr"))
-	       (float_extend:<VWMODES>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 4 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -4253,17 +4089,17 @@
 
 (define_expand "fwmul<mode>_vv_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(mult:<VWMODES>
-			  (float_extend:<VWMODES>
+			(mult:<VWMODE>
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 3 "register_operand"))
-			  (float_extend:<VWMODES>
+			  (float_extend:<VWMODE>
 			    (vec_duplicate:VWFMODES
 			      (match_operand:<VSUBMODE> 4 "register_operand"))))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -4272,17 +4108,17 @@
 })
 
 (define_insn "*fwmul<mode>_vv_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (mult:<VWMODES>
-	       (float_extend:<VWMODES>
+	     (mult:<VWMODE>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 3 "register_operand" "vr"))
-	       (float_extend:<VWMODES>
+	       (float_extend:<VWMODE>
 		 (vec_duplicate:VWFMODES
 		   (match_operand:<VSUBMODE> 4 "register_operand" "f"))))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -4866,15 +4702,15 @@
 
 (define_expand "vfw<vfmac><mode>"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(mult:<VWMODES>
-			  (float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(mult:<VWMODE>
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 2 "register_operand"))
-			  (float_extend:<VWMODES>
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 3 "register_operand")))
-			 (match_operand:<VWMODES> 1 "register_operand"))
+			 (match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -4883,15 +4719,15 @@
 })
 
 (define_insn "*vfw<vfmac><mode>_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (mult:<VWMODES>
-	       (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (mult:<VWMODE>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 1 "register_operand" "vr"))
-	       (float_extend:<VWMODES>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 2 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -4902,16 +4738,16 @@
 
 (define_expand "vfw<vfmac><mode>_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(mult:<VWMODES>
-			  (vec_duplicate:<VWMODES>
-			    (float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(mult:<VWMODE>
+			  (vec_duplicate:<VWMODE>
+			    (float_extend:<VWMODE>
 			      (match_operand:<VSUBMODE> 2 "register_operand")))
-			  (float_extend:<VWMODES>
+			  (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 3 "register_operand")))
-			(match_operand:<VWMODES> 1 "register_operand"))
+			(match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -4920,16 +4756,16 @@
 })
 
 (define_insn "*vfw<vfmac><mode>_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (mult:<VWMODES>
-	       (vec_duplicate:<VWMODES>
-		 (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (mult:<VWMODE>
+	       (vec_duplicate:<VWMODE>
+		 (float_extend:<VWMODE>
 		   (match_operand:<VSUBMODE> 2 "register_operand" "f")))
-	       (float_extend:<VWMODES>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 1 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -4940,17 +4776,17 @@
 
 (define_expand "vfw<vfmac><mode>_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(unspec:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(unspec:<VWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (add_sub:<VWMODES>
-			   (mult:<VWMODES>
-			     (float_extend:<VWMODES>
+			 (add_sub:<VWMODE>
+			   (mult:<VWMODE>
+			     (float_extend:<VWMODE>
 			       (match_operand:VWFMODES 3 "register_operand"))
-			     (float_extend:<VWMODES>
+			     (float_extend:<VWMODE>
 			       (match_operand:VWFMODES 4 "register_operand")))
-			   (match_operand:<VWMODES> 2 "register_operand"))]
+			   (match_operand:<VWMODE> 2 "register_operand"))]
 		       UNSPEC_MASK_VFWMACC)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -4960,17 +4796,17 @@
 })
 
 (define_insn "*vfw<vfmac><mode>_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(unspec:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(unspec:<VWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (add_sub:<VWMODES>
-		(mult:<VWMODES>
-		  (float_extend:<VWMODES>
+	      (add_sub:<VWMODE>
+		(mult:<VWMODE>
+		  (float_extend:<VWMODE>
 		    (match_operand:VWFMODES 3 "register_operand" "vr"))
-		  (float_extend:<VWMODES>
+		  (float_extend:<VWMODE>
 		    (match_operand:VWFMODES 4 "register_operand" "vr")))
-		(match_operand:<VWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_MASK_VFWMACC)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -4982,18 +4818,18 @@
 
 (define_expand "vfw<vfmac><mode>_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(unspec:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(unspec:<VWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (add_sub:<VWMODES>
-			   (mult:<VWMODES>
-			     (vec_duplicate:<VWMODES>
-			       (float_extend:<VWMODES>
+			 (add_sub:<VWMODE>
+			   (mult:<VWMODE>
+			     (vec_duplicate:<VWMODE>
+			       (float_extend:<VWMODE>
 				 (match_operand:<VSUBMODE> 3 "register_operand")))
-			       (float_extend:<VWMODES>
+			       (float_extend:<VWMODE>
 			    (match_operand:VWFMODES 4 "register_operand")))
-			(match_operand:<VWMODES> 2 "register_operand"))]
+			(match_operand:<VWMODE> 2 "register_operand"))]
 		       UNSPEC_MASK_VFWMACC)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -5003,18 +4839,18 @@
 })
 
 (define_insn "*vfw<vfmac><mode>_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(unspec:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(unspec:<VWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (add_sub:<VWMODES>
-		(mult:<VWMODES>
-		  (vec_duplicate:<VWMODES>
-		    (float_extend:<VWMODES>
+	      (add_sub:<VWMODE>
+		(mult:<VWMODE>
+		  (vec_duplicate:<VWMODE>
+		    (float_extend:<VWMODE>
 		      (match_operand:<VSUBMODE> 4 "register_operand" "f")))
-		    (float_extend:<VWMODES>
+		    (float_extend:<VWMODE>
 		      (match_operand:VWFMODES 3 "register_operand" "vr")))
-		(match_operand:<VWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_MASK_VFWMACC)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -5028,16 +4864,16 @@
 
 (define_expand "vfw<vfnmac><mode>"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(neg:<VWMODES>
-			  (mult:<VWMODES>
-			    (float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(neg:<VWMODE>
+			  (mult:<VWMODE>
+			    (float_extend:<VWMODE>
 			      (match_operand:VWFMODES 2 "register_operand"))
-			    (float_extend:<VWMODES>
+			    (float_extend:<VWMODE>
 			      (match_operand:VWFMODES 3 "register_operand"))))
-			(match_operand:<VWMODES> 1 "register_operand"))
+			(match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -5046,16 +4882,16 @@
 })
 
 (define_insn "*vfw<vfnmac><mode>_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (neg:<VWMODES>
-	       (mult:<VWMODES>
-		 (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (neg:<VWMODE>
+	       (mult:<VWMODE>
+		 (float_extend:<VWMODE>
 		   (match_operand:VWFMODES 1 "register_operand" "vr"))
-		 (float_extend:<VWMODES>
+		 (float_extend:<VWMODE>
 		   (match_operand:VWFMODES 2 "register_operand" "vr"))))
-	     (match_operand:<VWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -5066,17 +4902,17 @@
 
 (define_expand "vfw<vfnmac><mode>_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(add_sub:<VWMODES>
-			(neg:<VWMODES>
-			  (mult:<VWMODES>
-			    (vec_duplicate:<VWMODES>
-			      (float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(add_sub:<VWMODE>
+			(neg:<VWMODE>
+			  (mult:<VWMODE>
+			    (vec_duplicate:<VWMODE>
+			      (float_extend:<VWMODE>
 				(match_operand:<VSUBMODE> 2 "register_operand")))
-			      (float_extend:<VWMODES>
+			      (float_extend:<VWMODE>
 				(match_operand:VWFMODES 3 "register_operand"))))
-		        (match_operand:<VWMODES> 1 "register_operand"))
+		        (match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -5085,17 +4921,17 @@
 })
 
 (define_insn "*vfw<vfnmac><mode>_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(add_sub:<VWMODES>
-	     (neg:<VWMODES>
-	       (mult:<VWMODES>
-		 (vec_duplicate:<VWMODES>
-		   (float_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(add_sub:<VWMODE>
+	     (neg:<VWMODE>
+	       (mult:<VWMODE>
+		 (vec_duplicate:<VWMODE>
+		   (float_extend:<VWMODE>
 		     (match_operand:<VSUBMODE> 2 "register_operand" "f")))
-		   (float_extend:<VWMODES>
+		   (float_extend:<VWMODE>
 		     (match_operand:VWFMODES 1 "register_operand" "vr"))))
-	     (match_operand:<VWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -5106,18 +4942,18 @@
 
 (define_expand "vfw<vfnmac><mode>_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(unspec:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(unspec:<VWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (add_sub:<VWMODES>
-			   (neg:<VWMODES>
-			     (mult:<VWMODES>
-			       (float_extend:<VWMODES>
+			 (add_sub:<VWMODE>
+			   (neg:<VWMODE>
+			     (mult:<VWMODE>
+			       (float_extend:<VWMODE>
 				 (match_operand:VWFMODES 3 "register_operand"))
-			       (float_extend:<VWMODES>
+			       (float_extend:<VWMODE>
 				 (match_operand:VWFMODES 4 "register_operand"))))
-			   (match_operand:<VWMODES> 2 "register_operand"))]
+			   (match_operand:<VWMODE> 2 "register_operand"))]
 		       UNSPEC_MASK_VFWNMACC)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -5127,18 +4963,18 @@
 })
 
 (define_insn "*vfw<vfnmac><mode>_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(unspec:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(unspec:<VWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (add_sub:<VWMODES>
-		(neg:<VWMODES>
-		  (mult:<VWMODES>
-		    (float_extend:<VWMODES>
+	      (add_sub:<VWMODE>
+		(neg:<VWMODE>
+		  (mult:<VWMODE>
+		    (float_extend:<VWMODE>
 		      (match_operand:VWFMODES 3 "register_operand" "vr"))
-		    (float_extend:<VWMODES>
+		    (float_extend:<VWMODE>
 		      (match_operand:VWFMODES 4 "register_operand" "vr"))))
-		(match_operand:<VWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_MASK_VFWNMACC)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -5150,19 +4986,19 @@
 
 (define_expand "vfw<vfnmac><mode>_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(unspec:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(unspec:<VWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (add_sub:<VWMODES>
-			   (neg:<VWMODES>
-			     (mult:<VWMODES>
-			       (vec_duplicate:<VWMODES>
-				 (float_extend:<VWMODES>
+			 (add_sub:<VWMODE>
+			   (neg:<VWMODE>
+			     (mult:<VWMODE>
+			       (vec_duplicate:<VWMODE>
+				 (float_extend:<VWMODE>
 				   (match_operand:<VSUBMODE> 3 "register_operand")))
-				 (float_extend:<VWMODES>
+				 (float_extend:<VWMODE>
 				   (match_operand:VWFMODES 4 "register_operand"))))
-			   (match_operand:<VWMODES> 2 "register_operand"))]
+			   (match_operand:<VWMODE> 2 "register_operand"))]
 		       UNSPEC_MASK_VFWNMACC)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -5172,19 +5008,19 @@
 })
 
 (define_insn "*vfw<vfnmac><mode>_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(unspec:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(unspec:<VWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (add_sub:<VWMODES>
-		(neg:<VWMODES>
-		  (mult:<VWMODES>
-		    (vec_duplicate:<VWMODES>
-		      (float_extend:<VWMODES>
+	      (add_sub:<VWMODE>
+		(neg:<VWMODE>
+		  (mult:<VWMODE>
+		    (vec_duplicate:<VWMODE>
+		      (float_extend:<VWMODE>
 			(match_operand:<VSUBMODE> 4 "register_operand" "f")))
-		      (float_extend:<VWMODES>
+		      (float_extend:<VWMODE>
 			(match_operand:VWFMODES 3 "register_operand" "vr"))))
-		(match_operand:<VWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_MASK_VFWNMACC)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -6461,10 +6297,10 @@
 		   (unspec:<VW1MODES>
 		     [(unspec:<VW1MODES>
 			[(match_operand:<VW1MODES> 1 "register_operand")
-			 (plus:<VWMODES>
-			   (vec_duplicate:<VWMODES>
+			 (plus:<VWMODE>
+			   (vec_duplicate:<VWMODE>
 			     (match_operand:<VW1MODES> 2 "register_operand"))
-			   (any_extend:<VWMODES>
+			   (any_extend:<VWMODE>
 			     (match_operand:VWIMODES 3 "register_operand")))]
 		       UNSPEC_REDUC)
 		      (reg:SI VL_REGNUM)]
@@ -6479,10 +6315,10 @@
 	(unspec:<VW1MODES>
 	  [(unspec:<VW1MODES>
 	     [(match_operand:<VW1MODES> 1 "register_operand" "0")
-	      (plus:<VWMODES>
-		(vec_duplicate:<VWMODES>
+	      (plus:<VWMODE>
+		(vec_duplicate:<VWMODE>
 		  (match_operand:<VW1MODES> 2 "register_operand" "vr"))
-		(any_extend:<VWMODES>
+		(any_extend:<VWMODE>
 		  (match_operand:VWIMODES 3 "register_operand" "vr")))]
 	    UNSPEC_REDUC)
 	   (reg:SI VL_REGNUM)]
@@ -6500,10 +6336,10 @@
 		     [(unspec:<VW1MODES>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
 			 (match_operand:<VW1MODES> 2 "register_operand")
-			 (plus:<VWMODES>
-			   (vec_duplicate:<VWMODES>
+			 (plus:<VWMODE>
+			   (vec_duplicate:<VWMODE>
 			     (match_operand:<VW1MODES> 3 "register_operand"))
-			   (any_extend:<VWMODES>
+			   (any_extend:<VWMODE>
 			     (match_operand:VWIMODES 4 "register_operand")))]
 		       UNSPEC_REDUC)
 		      (reg:SI VL_REGNUM)]
@@ -6519,10 +6355,10 @@
 	  [(unspec:<VW1MODES>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
 	      (match_operand:<VW1MODES> 2 "register_operand" "0")
-	      (plus:<VWMODES>
-		(vec_duplicate:<VWMODES>
+	      (plus:<VWMODE>
+		(vec_duplicate:<VWMODE>
 		  (match_operand:<VW1MODES> 3 "register_operand" "vr"))
-		(any_extend:<VWMODES>
+		(any_extend:<VWMODE>
 		  (match_operand:VWIMODES 4 "register_operand" "vr")))]
 	    UNSPEC_REDUC)
 	   (reg:SI VL_REGNUM)]
@@ -6691,10 +6527,10 @@
 		   (unspec:<VW1MODES>
 		     [(unspec:<VW1MODES>
 			[(match_operand:<VW1MODES> 1 "register_operand")
-			 (plus:<VWMODES>
-			   (vec_duplicate:<VWMODES>
+			 (plus:<VWMODE>
+			   (vec_duplicate:<VWMODE>
 			     (match_operand:<VW1MODES> 2 "register_operand"))
-			   (float_extend:<VWMODES>
+			   (float_extend:<VWMODE>
 			     (match_operand:VWFMODES 3 "register_operand")))]
 		       WFREDUC_REDUC)
 		      (reg:SI VL_REGNUM)]
@@ -6709,10 +6545,10 @@
 	(unspec:<VW1MODES>
 	  [(unspec:<VW1MODES>
 	     [(match_operand:<VW1MODES> 1 "register_operand" "0")
-	      (plus:<VWMODES>
-		(vec_duplicate:<VWMODES>
+	      (plus:<VWMODE>
+		(vec_duplicate:<VWMODE>
 		  (match_operand:<VW1MODES> 2 "register_operand" "vr"))
-		(float_extend:<VWMODES>
+		(float_extend:<VWMODE>
 		  (match_operand:VWFMODES 3 "register_operand" "vr")))]
 	    WFREDUC_REDUC)
 	   (reg:SI VL_REGNUM)]
@@ -6730,10 +6566,10 @@
 		     [(unspec:<VW1MODES>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
 			 (match_operand:<VW1MODES> 2 "register_operand")
-			 (plus:<VWMODES>
-			   (vec_duplicate:<VWMODES>
+			 (plus:<VWMODE>
+			   (vec_duplicate:<VWMODE>
 			     (match_operand:<VW1MODES> 3 "register_operand"))
-			   (float_extend:<VWMODES>
+			   (float_extend:<VWMODE>
 			     (match_operand:VWFMODES 4 "register_operand")))]
 		       WFREDUC_REDUC)
 		      (reg:SI VL_REGNUM)]
@@ -6749,10 +6585,10 @@
 	  [(unspec:<VW1MODES>
 	    [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
 	     (match_operand:<VW1MODES> 2 "register_operand" "0")
-	     (plus:<VWMODES>
-	       (vec_duplicate:<VWMODES>
+	     (plus:<VWMODE>
+	       (vec_duplicate:<VWMODE>
 		 (match_operand:<VW1MODES> 3 "register_operand" "vr"))
-	       (float_extend:<VWMODES>
+	       (float_extend:<VWMODE>
 		 (match_operand:VWFMODES 4 "register_operand" "vr")))]
 	    WFREDUC_REDUC)
 	   (reg:SI VL_REGNUM)]
@@ -6935,8 +6771,8 @@
    (parallel [(set (match_operand:VWIMODES 0 "register_operand")
 		   (unspec:VWIMODES
 		     [(truncate:VWIMODES
-			(any_shiftrt:<VWMODES>
-			  (match_operand:<VWMODES> 1 "register_operand")
+			(any_shiftrt:<VWMODE>
+			  (match_operand:<VWMODE> 1 "register_operand")
 			  (match_operand:VWIMODES 2 "vector_shift_operand")))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -6949,8 +6785,8 @@
   [(set (match_operand:VWIMODES 0 "register_operand" "=&vr,&vr")
 	(unspec:VWIMODES
 	  [(truncate:VWIMODES
-	     (any_shiftrt:<VWMODES>
-	       (match_operand:<VWMODES> 1 "register_operand" "vr,vr")
+	     (any_shiftrt:<VWMODE>
+	       (match_operand:<VWMODE> 1 "register_operand" "vr,vr")
 	       (match_operand:VWIMODES 2 "vector_shift_operand" "vr,vk")))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -6967,8 +6803,8 @@
    (parallel [(set (match_operand:VWIMODES 0 "register_operand")
 		   (unspec:VWIMODES
 		     [(truncate:VWIMODES
-			(any_shiftrt:<VWMODES>
-			  (match_operand:<VWMODES> 1 "register_operand")
+			(any_shiftrt:<VWMODE>
+			  (match_operand:<VWMODE> 1 "register_operand")
 			  (vec_duplicate:VWIMODES
 			    (match_operand:<VSUBMODE> 2 "register_operand"))))
 		      (reg:SI VL_REGNUM)]
@@ -6982,8 +6818,8 @@
   [(set (match_operand:VWIMODES 0 "register_operand" "=&vr")
 	(unspec:VWIMODES
 	  [(truncate:VWIMODES
-	     (any_shiftrt:<VWMODES>
-	       (match_operand:<VWMODES> 1 "register_operand" "vr")
+	     (any_shiftrt:<VWMODE>
+	       (match_operand:<VWMODE> 1 "register_operand" "vr")
 	       (vec_duplicate:VWIMODES
 		 (match_operand:<VSUBMODE> 2 "register_operand" "r"))))
 	   (reg:SI VL_REGNUM)]
@@ -7001,8 +6837,8 @@
 		     [(if_then_else:VWIMODES
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
 			(truncate:VWIMODES
-			  (any_shiftrt:<VWMODES>
-			    (match_operand:<VWMODES> 3 "register_operand")
+			  (any_shiftrt:<VWMODE>
+			    (match_operand:<VWMODE> 3 "register_operand")
 			    (match_operand:VWIMODES 4 "vector_shift_operand")))
 			(match_operand:VWIMODES 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
@@ -7018,8 +6854,8 @@
 	  [(if_then_else:VWIMODES
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm,vm")
 	     (truncate:VWIMODES
-	       (any_shiftrt:<VWMODES>
-		 (match_operand:<VWMODES> 3 "register_operand" "vr,vr")
+	       (any_shiftrt:<VWMODE>
+		 (match_operand:<VWMODE> 3 "register_operand" "vr,vr")
 		 (match_operand:VWIMODES 4 "vector_shift_operand" "vr,vk")))
 	     (match_operand:VWIMODES 2 "register_operand" "0,0"))
 	   (reg:SI VL_REGNUM)]
@@ -7039,8 +6875,8 @@
 		     [(if_then_else:VWIMODES
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
 			(truncate:VWIMODES
-			  (any_shiftrt:<VWMODES>
-			    (match_operand:<VWMODES> 3 "register_operand")
+			  (any_shiftrt:<VWMODE>
+			    (match_operand:<VWMODE> 3 "register_operand")
 			    (vec_duplicate:VWIMODES
 			      (match_operand:<VSUBMODE> 4 "register_operand"))))
 			(match_operand:VWIMODES 2 "register_operand"))
@@ -7057,8 +6893,8 @@
 	  [(if_then_else:VWIMODES
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
 	     (truncate:VWIMODES
-	       (any_shiftrt:<VWMODES>
-		 (match_operand:<VWMODES> 3 "register_operand" "vr")
+	       (any_shiftrt:<VWMODE>
+		 (match_operand:<VWMODE> 3 "register_operand" "vr")
 		 (vec_duplicate:VWIMODES
 		   (match_operand:<VSUBMODE> 4 "register_operand" "r"))))
 	     (match_operand:VWIMODES 2 "register_operand" "0"))
@@ -7338,12 +7174,12 @@
 
 (define_expand "wmul<u><mode>"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(mult:<VWMODES>
-			(any_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(mult:<VWMODE>
+			(any_extend:<VWMODE>
 			  (match_operand:VWIMODES 1 "register_operand"))
-			(any_extend:<VWMODES>
+			(any_extend:<VWMODE>
 			  (match_operand:VWIMODES 2 "register_operand")))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -7353,12 +7189,12 @@
 })
 
 (define_insn "*wmul<u><mode>_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(mult:<VWMODES>
-	     (any_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(mult:<VWMODE>
+	     (any_extend:<VWMODE>
 	       (match_operand:VWIMODES 1 "register_operand" "vr"))
-	     (any_extend:<VWMODES>
+	     (any_extend:<VWMODE>
 	       (match_operand:VWIMODES 2 "register_operand" "vr")))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -7370,12 +7206,12 @@
 
 (define_expand "wmul<u><mode>_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(mult:<VWMODES>
-			(any_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(mult:<VWMODE>
+			(any_extend:<VWMODE>
 			  (match_operand:VWIMODES 1 "register_operand"))
-			(any_extend:<VWMODES>
+			(any_extend:<VWMODE>
 			  (vec_duplicate:VWIMODES
 			    (match_operand:<VSUBMODE> 2 "register_operand"))))
 		      (reg:SI VL_REGNUM)]
@@ -7386,12 +7222,12 @@
 })
 
 (define_insn "*wmul<u><mode>_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(mult:<VWMODES>
-	     (any_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(mult:<VWMODE>
+	     (any_extend:<VWMODE>
 	       (match_operand:VWIMODES 1 "register_operand" "vr"))
-	     (any_extend:<VWMODES>
+	     (any_extend:<VWMODE>
 	       (vec_duplicate:VWIMODES
 		 (match_operand:<VSUBMODE> 2 "register_operand" "r"))))
 	   (reg:SI VL_REGNUM)]
@@ -7404,16 +7240,16 @@
 
 (define_expand "wmul<u><mode>_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(mult:<VWMODES>
-			  (any_extend:<VWMODES>
+			(mult:<VWMODE>
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand"))
-			  (any_extend:<VWMODES>
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 4 "register_operand")))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -7422,16 +7258,16 @@
 })
 
 (define_insn "*wmul<u><mode>_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (mult:<VWMODES>
-	       (any_extend:<VWMODES>
+	     (mult:<VWMODE>
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 3 "register_operand" "vr"))
-	       (any_extend:<VWMODES>
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 4 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -7442,17 +7278,17 @@
 
 (define_expand "wmul<u><mode>_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(mult:<VWMODES>
-			  (any_extend:<VWMODES>
+			(mult:<VWMODE>
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand"))
-			  (any_extend:<VWMODES>
+			  (any_extend:<VWMODE>
 			    (vec_duplicate:VWIMODES
 			      (match_operand:<VSUBMODE> 4 "register_operand"))))
-			  (match_operand:<VWMODES> 2 "register_operand"))
+			  (match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -7461,17 +7297,17 @@
 })
 
 (define_insn "*wmul<u><mode>_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (mult:<VWMODES>
-	       (any_extend:<VWMODES>
+	     (mult:<VWMODE>
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 3 "register_operand" "vr"))
-	       (any_extend:<VWMODES>
+	       (any_extend:<VWMODE>
 		 (vec_duplicate:VWIMODES
 		   (match_operand:<VSUBMODE> 4 "register_operand" "r"))))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -7484,12 +7320,12 @@
 
 (define_expand "wmulsu<mode>"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(mult:<VWMODES>
-			(sign_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(mult:<VWMODE>
+			(sign_extend:<VWMODE>
 			  (match_operand:VWIMODES 1 "register_operand"))
-			(zero_extend:<VWMODES>
+			(zero_extend:<VWMODE>
 			  (match_operand:VWIMODES 2 "register_operand")))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -7499,12 +7335,12 @@
 })
 
 (define_insn "*wmulsu<mode>_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(mult:<VWMODES>
-	     (sign_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(mult:<VWMODE>
+	     (sign_extend:<VWMODE>
 	       (match_operand:VWIMODES 1 "register_operand" "vr"))
-	     (zero_extend:<VWMODES>
+	     (zero_extend:<VWMODE>
 	       (match_operand:VWIMODES 2 "register_operand" "vr")))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -7516,12 +7352,12 @@
 
 (define_expand "wmulsu<mode>_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(mult:<VWMODES>
-			(sign_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(mult:<VWMODE>
+			(sign_extend:<VWMODE>
 			  (match_operand:VWIMODES 1 "register_operand"))
-			(zero_extend:<VWMODES>
+			(zero_extend:<VWMODE>
 			  (vec_duplicate:VWIMODES
 			    (match_operand:<VSUBMODE> 2 "register_operand"))))
 		      (reg:SI VL_REGNUM)]
@@ -7532,12 +7368,12 @@
 })
 
 (define_insn "*wmulsu<mode>_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(mult:<VWMODES>
-	     (sign_extend:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(mult:<VWMODE>
+	     (sign_extend:<VWMODE>
 	       (match_operand:VWIMODES 1 "register_operand" "vr"))
-	     (zero_extend:<VWMODES>
+	     (zero_extend:<VWMODE>
 	       (vec_duplicate:VWIMODES
 		 (match_operand:<VSUBMODE> 2 "register_operand" "r"))))
 	   (reg:SI VL_REGNUM)]
@@ -7550,16 +7386,16 @@
 
 (define_expand "wmulsu<mode>_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(mult:<VWMODES>
-			  (sign_extend:<VWMODES>
+			(mult:<VWMODE>
+			  (sign_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand"))
-			  (zero_extend:<VWMODES>
+			  (zero_extend:<VWMODE>
 			    (match_operand:VWIMODES 4 "register_operand")))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -7568,16 +7404,16 @@
 })
 
 (define_insn "*wmulsu<mode>_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (mult:<VWMODES>
-	       (sign_extend:<VWMODES>
+	     (mult:<VWMODE>
+	       (sign_extend:<VWMODE>
 		 (match_operand:VWIMODES 3 "register_operand" "vr"))
-	       (zero_extend:<VWMODES>
+	       (zero_extend:<VWMODE>
 		 (match_operand:VWIMODES 4 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -7588,17 +7424,17 @@
 
 (define_expand "wmulsu<mode>_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(mult:<VWMODES>
-			  (sign_extend:<VWMODES>
+			(mult:<VWMODE>
+			  (sign_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand"))
-			  (zero_extend:<VWMODES>
+			  (zero_extend:<VWMODE>
 			    (vec_duplicate:VWIMODES
 			      (match_operand:<VSUBMODE> 4 "register_operand"))))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -7607,17 +7443,17 @@
 })
 
 (define_insn "*wmulsu<mode>_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (mult:<VWMODES>
-	       (sign_extend:<VWMODES>
+	     (mult:<VWMODE>
+	       (sign_extend:<VWMODE>
 		 (match_operand:VWIMODES 3 "register_operand" "vr"))
-	       (zero_extend:<VWMODES>
+	       (zero_extend:<VWMODE>
 		 (vec_duplicate:VWIMODES
 		   (match_operand:<VSUBMODE> 4 "register_operand" "r"))))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -7833,17 +7669,17 @@
 
 ;;Vector Widening Integer Multiply-Add Instructions
 
-(define_expand "<u>madd<mode><vwimode>4"
+(define_expand "<u>madd<mode><vwmode>4"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(plus:<VWMODES>
-			(mult:<VWMODES>
-			  (any_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(plus:<VWMODE>
+			(mult:<VWMODE>
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 2 "register_operand"))
-			  (any_extend:<VWMODES>
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand")))
-			(match_operand:<VWMODES> 1 "register_operand"))
+			(match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -7851,16 +7687,16 @@
 {
 })
 
-(define_insn "*<u>madd<mode><vwimode>4_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(plus:<VWMODES>
-	     (mult:<VWMODES>
-	       (any_extend:<VWMODES>
+(define_insn "*<u>madd<mode><vwmode>4_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(plus:<VWMODE>
+	     (mult:<VWMODE>
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 1 "register_operand" "vr"))
-	       (any_extend:<VWMODES>
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -7869,17 +7705,17 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "sumadd<mode><vwimode>4"
+(define_expand "sumadd<mode><vwmode>4"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(plus:<VWMODES>
-			(mult:<VWMODES>
-			  (sign_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(plus:<VWMODE>
+			(mult:<VWMODE>
+			  (sign_extend:<VWMODE>
 			    (match_operand:VWIMODES 2 "register_operand"))
-			  (zero_extend:<VWMODES>
+			  (zero_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand")))
-			 (match_operand:<VWMODES> 1 "register_operand"))
+			 (match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -7887,16 +7723,16 @@
 {
 })
 
-(define_insn "*sumadd<mode><vwimode>4_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(plus:<VWMODES>
-	     (mult:<VWMODES>
-	       (sign_extend:<VWMODES>
+(define_insn "*sumadd<mode><vwmode>4_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(plus:<VWMODE>
+	     (mult:<VWMODE>
+	       (sign_extend:<VWMODE>
 		 (match_operand:VWIMODES 1 "register_operand" "vr"))
-	       (zero_extend:<VWMODES>
+	       (zero_extend:<VWMODE>
 		 (match_operand:VWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -7905,18 +7741,18 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<u>madd<mode><vwimode>4_scalar"
+(define_expand "<u>madd<mode><vwmode>4_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(plus:<VWMODES>
-			(mult:<VWMODES>
-			  (any_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(plus:<VWMODE>
+			(mult:<VWMODE>
+			  (any_extend:<VWMODE>
 			    (vec_duplicate:VWIMODES
 			      (match_operand:<VSUBMODE> 2 "register_operand")))
-			  (any_extend:<VWMODES>
+			  (any_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand")))
-			(match_operand:<VWMODES> 1 "register_operand"))
+			(match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -7924,17 +7760,17 @@
 {
 })
 
-(define_insn "*<u>madd<mode><vwimode>4_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(plus:<VWMODES>
-	     (mult:<VWMODES>
-	       (any_extend:<VWMODES>
+(define_insn "*<u>madd<mode><vwmode>4_scalar_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(plus:<VWMODE>
+	     (mult:<VWMODE>
+	       (any_extend:<VWMODE>
 		 (vec_duplicate:VWIMODES
 		   (match_operand:<VSUBMODE> 1 "register_operand" "r")))
-	       (any_extend:<VWMODES>
+	       (any_extend:<VWMODE>
 		 (match_operand:VWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -7943,18 +7779,18 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "sumadd<mode><vwimode>4_scalar"
+(define_expand "sumadd<mode><vwmode>4_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(plus:<VWMODES>
-			(mult:<VWMODES>
-			  (sign_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(plus:<VWMODE>
+			(mult:<VWMODE>
+			  (sign_extend:<VWMODE>
 			    (vec_duplicate:VWIMODES
 			      (match_operand:<VSUBMODE> 2 "register_operand")))
-			  (zero_extend:<VWMODES>
+			  (zero_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand")))
-			(match_operand:<VWMODES> 1 "register_operand"))
+			(match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -7962,17 +7798,17 @@
 {
 })
 
-(define_insn "*sumadd<mode><vwimode>4_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(plus:<VWMODES>
-	     (mult:<VWMODES>
-	       (sign_extend:<VWMODES>
+(define_insn "*sumadd<mode><vwmode>4_scalar_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(plus:<VWMODE>
+	     (mult:<VWMODE>
+	       (sign_extend:<VWMODE>
 		 (vec_duplicate:VWIMODES
 		   (match_operand:<VSUBMODE> 1 "register_operand" "r")))
-	       (zero_extend:<VWMODES>
+	       (zero_extend:<VWMODE>
 		 (match_operand:VWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -7981,18 +7817,18 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "usmadd<mode><vwimode>4_scalar"
+(define_expand "usmadd<mode><vwmode>4_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(plus:<VWMODES>
-			(mult:<VWMODES>
-			  (zero_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(plus:<VWMODE>
+			(mult:<VWMODE>
+			  (zero_extend:<VWMODE>
 			    (vec_duplicate:VWIMODES
 			      (match_operand:<VSUBMODE> 2 "register_operand")))
-			  (sign_extend:<VWMODES>
+			  (sign_extend:<VWMODE>
 			    (match_operand:VWIMODES 3 "register_operand")))
-			(match_operand:<VWMODES> 1 "register_operand"))
+			(match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8000,17 +7836,17 @@
 {
 })
 
-(define_insn "*usmadd<mode><vwimode>4_scalar_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(plus:<VWMODES>
-	     (mult:<VWMODES>
-	       (zero_extend:<VWMODES>
+(define_insn "*usmadd<mode><vwmode>4_scalar_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(plus:<VWMODE>
+	     (mult:<VWMODE>
+	       (zero_extend:<VWMODE>
 		 (vec_duplicate:VWIMODES
 		   (match_operand:<VSUBMODE> 1 "register_operand" "r")))
-	       (sign_extend:<VWMODES>
+	       (sign_extend:<VWMODE>
 		 (match_operand:VWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8019,19 +7855,19 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<u>madd<mode><vwimode>4_mask"
+(define_expand "<u>madd<mode><vwmode>4_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(unspec:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(unspec:<VWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (plus:<VWMODES>
-			   (mult:<VWMODES>
-			     (any_extend:<VWMODES>
+			 (plus:<VWMODE>
+			   (mult:<VWMODE>
+			     (any_extend:<VWMODE>
 			       (match_operand:VWIMODES 3 "register_operand"))
-			     (any_extend:<VWMODES>
+			     (any_extend:<VWMODE>
 			       (match_operand:VWIMODES 4 "register_operand")))
-			   (match_operand:<VWMODES> 2 "register_operand"))]
+			   (match_operand:<VWMODE> 2 "register_operand"))]
 		       UNSPEC_VMADD)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8040,18 +7876,18 @@
 {
 })
 
-(define_insn "*<u>madd<mode><vwimode>4_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(unspec:<VWMODES>
+(define_insn "*<u>madd<mode><vwmode>4_mask_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(unspec:<VWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VWMODES>
-		(mult:<VWMODES>
-		  (any_extend:<VWMODES>
+	      (plus:<VWMODE>
+		(mult:<VWMODE>
+		  (any_extend:<VWMODE>
 		    (match_operand:VWIMODES 3 "register_operand" "vr"))
-		  (any_extend:<VWMODES>
+		  (any_extend:<VWMODE>
 		    (match_operand:VWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VMADD)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8061,19 +7897,19 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "sumadd<mode><vwimode>4_mask"
+(define_expand "sumadd<mode><vwmode>4_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(unspec:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(unspec:<VWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (plus:<VWMODES>
-			   (mult:<VWMODES>
-			     (sign_extend:<VWMODES>
+			 (plus:<VWMODE>
+			   (mult:<VWMODE>
+			     (sign_extend:<VWMODE>
 			       (match_operand:VWIMODES 3 "register_operand"))
-			     (zero_extend:<VWMODES>
+			     (zero_extend:<VWMODE>
 			       (match_operand:VWIMODES 4 "register_operand")))
-			   (match_operand:<VWMODES> 2 "register_operand"))]
+			   (match_operand:<VWMODE> 2 "register_operand"))]
 		       UNSPEC_VMADD)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8082,18 +7918,18 @@
 {
 })
 
-(define_insn "*sumadd<mode><vwimode>4_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(unspec:<VWMODES>
+(define_insn "*sumadd<mode><vwmode>4_mask_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(unspec:<VWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VWMODES>
-		(mult:<VWMODES>
-		  (sign_extend:<VWMODES>
+	      (plus:<VWMODE>
+		(mult:<VWMODE>
+		  (sign_extend:<VWMODE>
 		    (match_operand:VWIMODES 3 "register_operand" "vr"))
-		  (zero_extend:<VWMODES>
+		  (zero_extend:<VWMODE>
 		    (match_operand:VWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VMADD)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8103,20 +7939,20 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<u>madd<mode><vwimode>4_scalar_mask"
+(define_expand "<u>madd<mode><vwmode>4_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(unspec:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(unspec:<VWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (plus:<VWMODES>
-			   (mult:<VWMODES>
-			     (any_extend:<VWMODES>
+			 (plus:<VWMODE>
+			   (mult:<VWMODE>
+			     (any_extend:<VWMODE>
 			       (vec_duplicate:VWIMODES
 				 (match_operand:<VSUBMODE> 3 "register_operand")))
-			     (any_extend:<VWMODES>
+			     (any_extend:<VWMODE>
 			       (match_operand:VWIMODES 4 "register_operand")))
-			   (match_operand:<VWMODES> 2 "register_operand"))]
+			   (match_operand:<VWMODE> 2 "register_operand"))]
 		       UNSPEC_VMADD)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8125,19 +7961,19 @@
 {
 })
 
-(define_insn "*<u>madd<mode><vwimode>4_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(unspec:<VWMODES>
+(define_insn "*<u>madd<mode><vwmode>4_scalar_mask_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(unspec:<VWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VWMODES>
-		(mult:<VWMODES>
-		  (any_extend:<VWMODES>
+	      (plus:<VWMODE>
+		(mult:<VWMODE>
+		  (any_extend:<VWMODE>
 		    (vec_duplicate:VWIMODES
 		      (match_operand:<VSUBMODE> 3 "register_operand" "r")))
-		  (any_extend:<VWMODES>
+		  (any_extend:<VWMODE>
 		    (match_operand:VWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VMADD)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8147,20 +7983,20 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "sumadd<mode><vwimode>4_scalar_mask"
+(define_expand "sumadd<mode><vwmode>4_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(unspec:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(unspec:<VWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (plus:<VWMODES>
-			   (mult:<VWMODES>
-			     (sign_extend:<VWMODES>
+			 (plus:<VWMODE>
+			   (mult:<VWMODE>
+			     (sign_extend:<VWMODE>
 			       (vec_duplicate:VWIMODES
 				 (match_operand:<VSUBMODE> 3 "register_operand")))
-			     (zero_extend:<VWMODES>
+			     (zero_extend:<VWMODE>
 			       (match_operand:VWIMODES 4 "register_operand")))
-			   (match_operand:<VWMODES> 2 "register_operand"))]
+			   (match_operand:<VWMODE> 2 "register_operand"))]
 		       UNSPEC_VMADD)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8169,19 +8005,19 @@
 {
 })
 
-(define_insn "*sumadd<mode><vwimode>4_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(unspec:<VWMODES>
+(define_insn "*sumadd<mode><vwmode>4_scalar_mask_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(unspec:<VWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VWMODES>
-		(mult:<VWMODES>
-		  (sign_extend:<VWMODES>
+	      (plus:<VWMODE>
+		(mult:<VWMODE>
+		  (sign_extend:<VWMODE>
 		    (vec_duplicate:VWIMODES
 		      (match_operand:<VSUBMODE> 3 "register_operand" "r")))
-		  (zero_extend:<VWMODES>
+		  (zero_extend:<VWMODE>
 		    (match_operand:VWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VMADD)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8191,20 +8027,20 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "usmadd<mode><vwimode>4_scalar_mask"
+(define_expand "usmadd<mode><vwmode>4_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(unspec:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(unspec:<VWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (plus:<VWMODES>
-			   (mult:<VWMODES>
-			     (zero_extend:<VWMODES>
+			 (plus:<VWMODE>
+			   (mult:<VWMODE>
+			     (zero_extend:<VWMODE>
 			       (vec_duplicate:VWIMODES
 				 (match_operand:<VSUBMODE> 3 "register_operand")))
-			     (sign_extend:<VWMODES>
+			     (sign_extend:<VWMODE>
 			       (match_operand:VWIMODES 4 "register_operand")))
-			   (match_operand:<VWMODES> 2 "register_operand"))]
+			   (match_operand:<VWMODE> 2 "register_operand"))]
 		       UNSPEC_VMADD)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8213,19 +8049,19 @@
 {
 })
 
-(define_insn "*usmadd<mode><vwimode>4_scalar_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(unspec:<VWMODES>
+(define_insn "*usmadd<mode><vwmode>4_scalar_mask_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(unspec:<VWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VWMODES>
-		(mult:<VWMODES>
-		  (zero_extend:<VWMODES>
+	      (plus:<VWMODE>
+		(mult:<VWMODE>
+		  (zero_extend:<VWMODE>
 		    (vec_duplicate:VWIMODES
 		      (match_operand:<VSUBMODE> 3 "register_operand" "r")))
-		  (sign_extend:<VWMODES>
+		  (sign_extend:<VWMODE>
 		    (match_operand:VWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VMADD)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8237,17 +8073,17 @@
 
 ;;Vector Quad-Widening Integer Multiply-Add Instructions
 
-(define_expand "<u>madd<mode><vqwimode>4"
+(define_expand "<u>madd<mode><vqwmode>4"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		     [(plus:<VQWMODES>
-			(mult:<VQWMODES>
-			  (any_extend:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(plus:<VQWMODE>
+			(mult:<VQWMODE>
+			  (any_extend:<VQWMODE>
 			    (match_operand:VQWIMODES 2 "register_operand"))
-			  (any_extend:<VQWMODES>
+			  (any_extend:<VQWMODE>
 			    (match_operand:VQWIMODES 3 "register_operand")))
-			(match_operand:<VQWMODES> 1 "register_operand"))
+			(match_operand:<VQWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8255,16 +8091,16 @@
 {
 })
 
-(define_insn "*<u>madd<mode><vqwimode>4_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VQWMODES>
-	  [(plus:<VQWMODES>
-	     (mult:<VQWMODES>
-	       (any_extend:<VQWMODES>
+(define_insn "*<u>madd<mode><vqwmode>4_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VQWMODE>
+	  [(plus:<VQWMODE>
+	     (mult:<VQWMODE>
+	       (any_extend:<VQWMODE>
 		 (match_operand:VQWIMODES 1 "register_operand" "vr"))
-	       (any_extend:<VQWMODES>
+	       (any_extend:<VQWMODE>
 		 (match_operand:VQWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VQWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VQWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8273,17 +8109,17 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "sumadd<mode><vqwimode>4"
+(define_expand "sumadd<mode><vqwmode>4"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		     [(plus:<VQWMODES>
-			(mult:<VQWMODES>
-			  (sign_extend:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(plus:<VQWMODE>
+			(mult:<VQWMODE>
+			  (sign_extend:<VQWMODE>
 			    (match_operand:VQWIMODES 2 "register_operand"))
-			  (zero_extend:<VQWMODES>
+			  (zero_extend:<VQWMODE>
 			    (match_operand:VQWIMODES 3 "register_operand")))
-			(match_operand:<VQWMODES> 1 "register_operand"))
+			(match_operand:<VQWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8291,16 +8127,16 @@
 {
 })
 
-(define_insn "*sumadd<mode><vqwimode>4_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VQWMODES>
-	  [(plus:<VQWMODES>
-	     (mult:<VQWMODES>
-	       (sign_extend:<VQWMODES>
+(define_insn "*sumadd<mode><vqwmode>4_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VQWMODE>
+	  [(plus:<VQWMODE>
+	     (mult:<VQWMODE>
+	       (sign_extend:<VQWMODE>
 		 (match_operand:VQWIMODES 1 "register_operand" "vr"))
-	       (zero_extend:<VQWMODES>
+	       (zero_extend:<VQWMODE>
 		 (match_operand:VQWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VQWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VQWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8309,18 +8145,18 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<u>madd<mode><vqwimode>4_scalar"
+(define_expand "<u>madd<mode><vqwmode>4_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		     [(plus:<VQWMODES>
-			(mult:<VQWMODES>
-			  (any_extend:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(plus:<VQWMODE>
+			(mult:<VQWMODE>
+			  (any_extend:<VQWMODE>
 			    (vec_duplicate:VQWIMODES
 			      (match_operand:<VSUBMODE> 2 "register_operand")))
-			  (any_extend:<VQWMODES>
+			  (any_extend:<VQWMODE>
 			    (match_operand:VQWIMODES 3 "register_operand")))
-			(match_operand:<VQWMODES> 1 "register_operand"))
+			(match_operand:<VQWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8328,17 +8164,17 @@
 {
 })
 
-(define_insn "*<u>madd<mode><vqwimode>4_scalar_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VQWMODES>
-	  [(plus:<VQWMODES>
-	     (mult:<VQWMODES>
-	       (any_extend:<VQWMODES>
+(define_insn "*<u>madd<mode><vqwmode>4_scalar_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VQWMODE>
+	  [(plus:<VQWMODE>
+	     (mult:<VQWMODE>
+	       (any_extend:<VQWMODE>
 		 (vec_duplicate:VQWIMODES
 		   (match_operand:<VSUBMODE> 1 "register_operand" "r")))
-	       (any_extend:<VQWMODES>
+	       (any_extend:<VQWMODE>
 		 (match_operand:VQWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VQWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VQWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8347,18 +8183,18 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "sumadd<mode><vqwimode>4_scalar"
+(define_expand "sumadd<mode><vqwmode>4_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		     [(plus:<VQWMODES>
-			(mult:<VQWMODES>
-			  (sign_extend:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(plus:<VQWMODE>
+			(mult:<VQWMODE>
+			  (sign_extend:<VQWMODE>
 			    (vec_duplicate:VQWIMODES
 			      (match_operand:<VSUBMODE> 2 "register_operand")))
-			  (zero_extend:<VQWMODES>
+			  (zero_extend:<VQWMODE>
 			    (match_operand:VQWIMODES 3 "register_operand")))
-			(match_operand:<VQWMODES> 1 "register_operand"))
+			(match_operand:<VQWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8366,17 +8202,17 @@
 {
 })
 
-(define_insn "*sumadd<mode><vqwimode>4_scalar_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VQWMODES>
-	  [(plus:<VQWMODES>
-	     (mult:<VQWMODES>
-	       (sign_extend:<VQWMODES>
+(define_insn "*sumadd<mode><vqwmode>4_scalar_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VQWMODE>
+	  [(plus:<VQWMODE>
+	     (mult:<VQWMODE>
+	       (sign_extend:<VQWMODE>
 		 (vec_duplicate:VQWIMODES
 		   (match_operand:<VSUBMODE> 1 "register_operand" "r")))
-		 (zero_extend:<VQWMODES>
+		 (zero_extend:<VQWMODE>
 		   (match_operand:VQWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VQWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VQWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8385,18 +8221,18 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "usmadd<mode><vqwimode>4_scalar"
+(define_expand "usmadd<mode><vqwmode>4_scalar"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		     [(plus:<VQWMODES>
-			(mult:<VQWMODES>
-			  (zero_extend:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(plus:<VQWMODE>
+			(mult:<VQWMODE>
+			  (zero_extend:<VQWMODE>
 			    (vec_duplicate:VQWIMODES
 			      (match_operand:<VSUBMODE> 2 "register_operand")))
-			  (sign_extend:<VQWMODES>
+			  (sign_extend:<VQWMODE>
 			    (match_operand:VQWIMODES 3 "register_operand")))
-			(match_operand:<VQWMODES> 1 "register_operand"))
+			(match_operand:<VQWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8404,17 +8240,17 @@
 {
 })
 
-(define_insn "*usmadd<mode><vqwimode>4_scalar_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VQWMODES>
-	  [(plus:<VQWMODES>
-	     (mult:<VQWMODES>
-	       (zero_extend:<VQWMODES>
+(define_insn "*usmadd<mode><vqwmode>4_scalar_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VQWMODE>
+	  [(plus:<VQWMODE>
+	     (mult:<VQWMODE>
+	       (zero_extend:<VQWMODE>
 		 (vec_duplicate:VQWIMODES
 		   (match_operand:<VSUBMODE> 1 "register_operand" "r")))
-	       (sign_extend:<VQWMODES>
+	       (sign_extend:<VQWMODE>
 		 (match_operand:VQWIMODES 2 "register_operand" "vr")))
-	     (match_operand:<VQWMODES> 3 "register_operand" "0"))
+	     (match_operand:<VQWMODE> 3 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8423,19 +8259,19 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<u>madd<mode><vqwimode>4_mask"
+(define_expand "<u>madd<mode><vqwmode>4_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		    [(unspec:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		    [(unspec:<VQWMODE>
 		       [(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(plus:<VQWMODES>
-			  (mult:<VQWMODES>
-			    (any_extend:<VQWMODES>
+			(plus:<VQWMODE>
+			  (mult:<VQWMODE>
+			    (any_extend:<VQWMODE>
 			      (match_operand:VQWIMODES 3 "register_operand"))
-			    (any_extend:<VQWMODES>
+			    (any_extend:<VQWMODE>
 			      (match_operand:VQWIMODES 4 "register_operand")))
-			(match_operand:<VQWMODES> 2 "register_operand"))]
+			(match_operand:<VQWMODE> 2 "register_operand"))]
 		       UNSPEC_VQMAC)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8444,18 +8280,18 @@
 {
 })
 
-(define_insn "*<u>madd<mode><vqwimode>4_mask_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=vr")
-	(unspec:<VQWMODES>
-	  [(unspec:<VQWMODES>
+(define_insn "*<u>madd<mode><vqwmode>4_mask_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=vr")
+	(unspec:<VQWMODE>
+	  [(unspec:<VQWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VQWMODES>
-		(mult:<VQWMODES>
-		  (any_extend:<VQWMODES>
+	      (plus:<VQWMODE>
+		(mult:<VQWMODE>
+		  (any_extend:<VQWMODE>
 		    (match_operand:VQWIMODES 3 "register_operand" "vr"))
-		  (any_extend:<VQWMODES>
+		  (any_extend:<VQWMODE>
 		    (match_operand:VQWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VQWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VQWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VQMAC)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8465,19 +8301,19 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "sumadd<mode><vqwimode>4_mask"
+(define_expand "sumadd<mode><vqwmode>4_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		     [(unspec:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(unspec:<VQWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (plus:<VQWMODES>
-			   (mult:<VQWMODES>
-			     (sign_extend:<VQWMODES>
+			 (plus:<VQWMODE>
+			   (mult:<VQWMODE>
+			     (sign_extend:<VQWMODE>
 			       (match_operand:VQWIMODES 3 "register_operand"))
-			     (zero_extend:<VQWMODES>
+			     (zero_extend:<VQWMODE>
 			       (match_operand:VQWIMODES 4 "register_operand")))
-			   (match_operand:<VQWMODES> 2 "register_operand"))]
+			   (match_operand:<VQWMODE> 2 "register_operand"))]
 		       UNSPEC_VQMAC)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8486,18 +8322,18 @@
 {
 })
 
-(define_insn "*sumadd<mode><vqwimode>4_mask_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=vr")
-	(unspec:<VQWMODES>
-	  [(unspec:<VQWMODES>
+(define_insn "*sumadd<mode><vqwmode>4_mask_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=vr")
+	(unspec:<VQWMODE>
+	  [(unspec:<VQWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VQWMODES>
-		(mult:<VQWMODES>
-		  (sign_extend:<VQWMODES>
+	      (plus:<VQWMODE>
+		(mult:<VQWMODE>
+		  (sign_extend:<VQWMODE>
 		    (match_operand:VQWIMODES 3 "register_operand" "vr"))
-		  (zero_extend:<VQWMODES>
+		  (zero_extend:<VQWMODE>
 		    (match_operand:VQWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VQWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VQWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VQMAC)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8507,20 +8343,20 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<u>madd<mode><vqwimode>4_scalar_mask"
+(define_expand "<u>madd<mode><vqwmode>4_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		     [(unspec:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(unspec:<VQWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (plus:<VQWMODES>
-			   (mult:<VQWMODES>
-			     (any_extend:<VQWMODES>
+			 (plus:<VQWMODE>
+			   (mult:<VQWMODE>
+			     (any_extend:<VQWMODE>
 			       (vec_duplicate:VQWIMODES
 				 (match_operand:<VSUBMODE> 3 "register_operand")))
-			     (any_extend:<VQWMODES>
+			     (any_extend:<VQWMODE>
 			       (match_operand:VQWIMODES 4 "register_operand")))
-			   (match_operand:<VQWMODES> 2 "register_operand"))]
+			   (match_operand:<VQWMODE> 2 "register_operand"))]
 		       UNSPEC_VQMAC)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8529,19 +8365,19 @@
 {
 })
 
-(define_insn "*<u>madd<mode><vqwimode>4_scalar_mask_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=vr")
-	(unspec:<VQWMODES>
-	  [(unspec:<VQWMODES>
+(define_insn "*<u>madd<mode><vqwmode>4_scalar_mask_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=vr")
+	(unspec:<VQWMODE>
+	  [(unspec:<VQWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VQWMODES>
-		(mult:<VQWMODES>
-		  (any_extend:<VQWMODES>
+	      (plus:<VQWMODE>
+		(mult:<VQWMODE>
+		  (any_extend:<VQWMODE>
 		    (vec_duplicate:VQWIMODES
 		      (match_operand:<VSUBMODE> 3 "register_operand" "r")))
-		  (any_extend:<VQWMODES>
+		  (any_extend:<VQWMODE>
 		    (match_operand:VQWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VQWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VQWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VQMAC)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8551,20 +8387,20 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "sumadd<mode><vqwimode>4_scalar_mask"
+(define_expand "sumadd<mode><vqwmode>4_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		     [(unspec:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(unspec:<VQWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (plus:<VQWMODES>
-			   (mult:<VQWMODES>
-			     (sign_extend:<VQWMODES>
+			 (plus:<VQWMODE>
+			   (mult:<VQWMODE>
+			     (sign_extend:<VQWMODE>
 			       (vec_duplicate:VQWIMODES
 				 (match_operand:<VSUBMODE> 3 "register_operand")))
-			     (zero_extend:<VQWMODES>
+			     (zero_extend:<VQWMODE>
 			       (match_operand:VQWIMODES 4 "register_operand")))
-			   (match_operand:<VQWMODES> 2 "register_operand"))]
+			   (match_operand:<VQWMODE> 2 "register_operand"))]
 		       UNSPEC_VQMAC)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8573,19 +8409,19 @@
 {
 })
 
-(define_insn "*sumadd<mode><vqwimode>4_scalar_mask_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=vr")
-	(unspec:<VQWMODES>
-	  [(unspec:<VQWMODES>
+(define_insn "*sumadd<mode><vqwmode>4_scalar_mask_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=vr")
+	(unspec:<VQWMODE>
+	  [(unspec:<VQWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VQWMODES>
-		(mult:<VQWMODES>
-		  (sign_extend:<VQWMODES>
+	      (plus:<VQWMODE>
+		(mult:<VQWMODE>
+		  (sign_extend:<VQWMODE>
 		    (vec_duplicate:VQWIMODES
 		      (match_operand:<VSUBMODE> 3 "register_operand" "r")))
-		  (zero_extend:<VQWMODES>
+		  (zero_extend:<VQWMODE>
 		    (match_operand:VQWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VQWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VQWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VQMAC)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8595,20 +8431,20 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "usmadd<mode><vqwimode>4_scalar_mask"
+(define_expand "usmadd<mode><vqwmode>4_scalar_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VQWMODES> 0 "register_operand")
-		   (unspec:<VQWMODES>
-		     [(unspec:<VQWMODES>
+   (parallel [(set (match_operand:<VQWMODE> 0 "register_operand")
+		   (unspec:<VQWMODE>
+		     [(unspec:<VQWMODE>
 			[(match_operand:<VCMPEQUIV> 1 "register_operand")
-			 (plus:<VQWMODES>
-			   (mult:<VQWMODES>
-			     (zero_extend:<VQWMODES>
+			 (plus:<VQWMODE>
+			   (mult:<VQWMODE>
+			     (zero_extend:<VQWMODE>
 			       (vec_duplicate:VQWIMODES
 				 (match_operand:<VSUBMODE> 3 "register_operand")))
-			     (sign_extend:<VQWMODES>
+			     (sign_extend:<VQWMODE>
 			       (match_operand:VQWIMODES 4 "register_operand")))
-			   (match_operand:<VQWMODES> 2 "register_operand"))]
+			   (match_operand:<VQWMODE> 2 "register_operand"))]
 		       UNSPEC_VQMAC)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8617,19 +8453,19 @@
 {
 })
 
-(define_insn "*usmadd<mode><vqwimode>4_scalar_mask_nosetvl"
-  [(set (match_operand:<VQWMODES> 0 "register_operand" "=vr")
-	(unspec:<VQWMODES>
-	  [(unspec:<VQWMODES>
+(define_insn "*usmadd<mode><vqwmode>4_scalar_mask_nosetvl"
+  [(set (match_operand:<VQWMODE> 0 "register_operand" "=vr")
+	(unspec:<VQWMODE>
+	  [(unspec:<VQWMODE>
 	     [(match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	      (plus:<VQWMODES>
-		(mult:<VQWMODES>
-		  (zero_extend:<VQWMODES>
+	      (plus:<VQWMODE>
+		(mult:<VQWMODE>
+		  (zero_extend:<VQWMODE>
 		    (vec_duplicate:VQWIMODES
 		      (match_operand:<VSUBMODE> 3 "register_operand" "r")))
-		  (sign_extend:<VQWMODES>
+		  (sign_extend:<VQWMODE>
 		    (match_operand:VQWIMODES 4 "register_operand" "vr")))
-		(match_operand:<VQWMODES> 2 "register_operand" "0"))]
+		(match_operand:<VQWMODE> 2 "register_operand" "0"))]
 	    UNSPEC_VQMAC)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8821,11 +8657,11 @@
 
 ;; Widening Floating-Point/Integer Type-Convert Instructions
 
-(define_expand "<fix_cvt><mode><vfwimodes>2"
+(define_expand "<fix_cvt><mode><vfwimode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VFWIMODES> 0 "register_operand")
-		   (unspec:<VFWIMODES>
-		     [(any_fix:<VFWIMODES>
+   (parallel [(set (match_operand:<VFWIMODE> 0 "register_operand")
+		   (unspec:<VFWIMODE>
+		     [(any_fix:<VFWIMODE>
 			(match_operand:VWFMODES 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -8834,10 +8670,10 @@
 {
 })
 
-(define_insn "*<fix_cvt><mode><vfwimodes>2_nosetvl"
-  [(set (match_operand:<VFWIMODES> 0 "register_operand" "=&vr")
-	(unspec:<VFWIMODES>
-	  [(any_fix:<VFWIMODES>
+(define_insn "*<fix_cvt><mode><vfwimode>2_nosetvl"
+  [(set (match_operand:<VFWIMODE> 0 "register_operand" "=&vr")
+	(unspec:<VFWIMODE>
+	  [(any_fix:<VFWIMODE>
 	     (match_operand:VWFMODES 1 "register_operand" "vr"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -8847,15 +8683,15 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<fix_cvt><mode><vfwimodes>2_mask"
+(define_expand "<fix_cvt><mode><vfwimode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VFWIMODES> 0 "register_operand")
-		   (unspec:<VFWIMODES>
-		     [(if_then_else:<VFWIMODES>
+   (parallel [(set (match_operand:<VFWIMODE> 0 "register_operand")
+		   (unspec:<VFWIMODE>
+		     [(if_then_else:<VFWIMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(any_fix:<VFWIMODES>
+			(any_fix:<VFWIMODE>
 			  (match_operand:VWFMODES 3 "register_operand"))
-			(match_operand:<VFWIMODES> 2 "register_operand"))
+			(match_operand:<VFWIMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8863,14 +8699,14 @@
 {
 })
 
-(define_insn "*<fix_cvt><mode><vfwimodes>2_mask_nosetvl"
-  [(set (match_operand:<VFWIMODES> 0 "register_operand" "=vr")
-	(unspec:<VFWIMODES>
-	  [(if_then_else:<VFWIMODES>
+(define_insn "*<fix_cvt><mode><vfwimode>2_mask_nosetvl"
+  [(set (match_operand:<VFWIMODE> 0 "register_operand" "=vr")
+	(unspec:<VFWIMODE>
+	  [(if_then_else:<VFWIMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (any_fix:<VFWIMODES>
+	     (any_fix:<VFWIMODE>
 	       (match_operand:VWFMODES 3 "register_operand" "vr"))
-	     (match_operand:<VFWIMODES> 2 "register_operand" "0"))
+	     (match_operand:<VFWIMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8879,11 +8715,11 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<fcvt_xf><mode><vfwimodes>2"
+(define_expand "<fcvt_xf><mode><vfwimode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VFWIMODES> 0 "register_operand")
-		   (unspec:<VFWIMODES>
-		     [(unspec:<VFWIMODES>
+   (parallel [(set (match_operand:<VFWIMODE> 0 "register_operand")
+		   (unspec:<VFWIMODE>
+		     [(unspec:<VFWIMODE>
 			[(match_operand:VWFMODES 1 "register_operand")]
 		       UNSPEC_FCVT)
 		      (reg:SI VL_REGNUM)]
@@ -8893,10 +8729,10 @@
 {
 })
 
-(define_insn "*<fcvt_xf><mode><vfwimodes>2_nosetvl"
-  [(set (match_operand:<VFWIMODES> 0 "register_operand" "=&vr")
-	(unspec:<VFWIMODES>
-	  [(unspec:<VFWIMODES>
+(define_insn "*<fcvt_xf><mode><vfwimode>2_nosetvl"
+  [(set (match_operand:<VFWIMODE> 0 "register_operand" "=&vr")
+	(unspec:<VFWIMODE>
+	  [(unspec:<VFWIMODE>
 	     [(match_operand:VWFMODES 1 "register_operand" "vr")]
 	    UNSPEC_FCVT)
 	   (reg:SI VL_REGNUM)]
@@ -8907,16 +8743,16 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<fcvt_xf><mode><vfwimodes>2_mask"
+(define_expand "<fcvt_xf><mode><vfwimode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VFWIMODES> 0 "register_operand")
-		   (unspec:<VFWIMODES>
-		     [(if_then_else:<VFWIMODES>
+   (parallel [(set (match_operand:<VFWIMODE> 0 "register_operand")
+		   (unspec:<VFWIMODE>
+		     [(if_then_else:<VFWIMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(unspec:<VFWIMODES>
+			(unspec:<VFWIMODE>
 			  [(match_operand:VWFMODES 3 "register_operand")]
 			 UNSPEC_FCVT)
-			(match_operand:<VFWIMODES> 2 "register_operand"))
+			(match_operand:<VFWIMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8924,15 +8760,15 @@
 {
 })
 
-(define_insn "*<fcvt_xf><mode><vfwimodes>2_mask_nosetvl"
-  [(set (match_operand:<VFWIMODES> 0 "register_operand" "=vr")
-	(unspec:<VFWIMODES>
-	  [(if_then_else:<VFWIMODES>
+(define_insn "*<fcvt_xf><mode><vfwimode>2_mask_nosetvl"
+  [(set (match_operand:<VFWIMODE> 0 "register_operand" "=vr")
+	(unspec:<VFWIMODE>
+	  [(if_then_else:<VFWIMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (unspec:<VFWIMODES>
+	     (unspec:<VFWIMODE>
 	       [(match_operand:VWFMODES 3 "register_operand" "vr")]
 	      UNSPEC_FCVT)
-	     (match_operand:<VFWIMODES> 2 "register_operand" "0"))
+	     (match_operand:<VFWIMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8941,12 +8777,12 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<float_cvt><mode><viwfmodes>2"
+(define_expand "<float_cvt><mode><viwfmode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VIWFMODES> 0 "register_operand")
-		   (unspec:<VIWFMODES>
-		     [(any_float:<VIWFMODES>
-			(match_operand:CVT_VWIMODES 1 "register_operand"))
+   (parallel [(set (match_operand:<VIWFMODE> 0 "register_operand")
+		   (unspec:<VIWFMODE>
+		     [(any_float:<VIWFMODE>
+			(match_operand:FCVT_VWIMODES 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8954,11 +8790,11 @@
 {
 })
 
-(define_insn "*<float_cvt><mode><viwfmodes>2_nosetvl"
-  [(set (match_operand:<VIWFMODES> 0 "register_operand" "=&vr")
-	(unspec:<VIWFMODES>
-	  [(any_float:<VIWFMODES>
-	     (match_operand:CVT_VWIMODES 1 "register_operand" "vr"))
+(define_insn "*<float_cvt><mode><viwfmode>2_nosetvl"
+  [(set (match_operand:<VIWFMODE> 0 "register_operand" "=&vr")
+	(unspec:<VIWFMODE>
+	  [(any_float:<VIWFMODE>
+	     (match_operand:FCVT_VWIMODES 1 "register_operand" "vr"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8967,15 +8803,15 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<float_cvt><mode><viwfmodes>2_mask"
+(define_expand "<float_cvt><mode><viwfmode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VIWFMODES> 0 "register_operand")
-		   (unspec:<VIWFMODES>
-		     [(if_then_else:<VIWFMODES>
+   (parallel [(set (match_operand:<VIWFMODE> 0 "register_operand")
+		   (unspec:<VIWFMODE>
+		     [(if_then_else:<VIWFMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(any_float:<VIWFMODES>
-			  (match_operand:CVT_VWIMODES 3 "register_operand"))
-			(match_operand:<VIWFMODES> 2 "register_operand"))
+			(any_float:<VIWFMODE>
+			  (match_operand:FCVT_VWIMODES 3 "register_operand"))
+			(match_operand:<VIWFMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -8983,14 +8819,14 @@
 {
 })
 
-(define_insn "*<float_cvt><mode><viwfmodes>2_mask_nosetvl"
-  [(set (match_operand:<VIWFMODES> 0 "register_operand" "=vr")
-	(unspec:<VIWFMODES>
-	  [(if_then_else:<VIWFMODES>
+(define_insn "*<float_cvt><mode><viwfmode>2_mask_nosetvl"
+  [(set (match_operand:<VIWFMODE> 0 "register_operand" "=vr")
+	(unspec:<VIWFMODE>
+	  [(if_then_else:<VIWFMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (any_float:<VIWFMODES>
-	       (match_operand:CVT_VWIMODES 3 "register_operand" "vr"))
-	     (match_operand:<VIWFMODES> 2 "register_operand" "0"))
+	     (any_float:<VIWFMODE>
+	       (match_operand:FCVT_VWIMODES 3 "register_operand" "vr"))
+	     (match_operand:<VIWFMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -8999,11 +8835,11 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "extend<mode><vwfmode>2"
+(define_expand "extend<mode><vwmode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(float_extend:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(float_extend:<VWMODE>
 			(match_operand:VWFMODES 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -9012,10 +8848,10 @@
 {
 })
 
-(define_insn "*extend<mode><vwfmode>2_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=&vr")
-	(unspec:<VWMODES>
-	  [(float_extend:<VWMODES>
+(define_insn "*extend<mode><vwmode>2_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=&vr")
+	(unspec:<VWMODE>
+	  [(float_extend:<VWMODE>
 	     (match_operand:VWFMODES 1 "register_operand" "vr"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -9025,15 +8861,15 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "extend<mode><vwfmode>2_mask"
+(define_expand "extend<mode><vwmode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:<VWMODES> 0 "register_operand")
-		   (unspec:<VWMODES>
-		     [(if_then_else:<VWMODES>
+   (parallel [(set (match_operand:<VWMODE> 0 "register_operand")
+		   (unspec:<VWMODE>
+		     [(if_then_else:<VWMODE>
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(float_extend:<VWMODES>
+			(float_extend:<VWMODE>
 			  (match_operand:VWFMODES 3 "register_operand"))
-			(match_operand:<VWMODES> 2 "register_operand"))
+			(match_operand:<VWMODE> 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -9041,14 +8877,14 @@
 {
 })
 
-(define_insn "*extend<mode><vwfmode>2_mask_nosetvl"
-  [(set (match_operand:<VWMODES> 0 "register_operand" "=vr")
-	(unspec:<VWMODES>
-	  [(if_then_else:<VWMODES>
+(define_insn "*extend<mode><vwmode>2_mask_nosetvl"
+  [(set (match_operand:<VWMODE> 0 "register_operand" "=vr")
+	(unspec:<VWMODE>
+	  [(if_then_else:<VWMODE>
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (float_extend:<VWMODES>
+	     (float_extend:<VWMODE>
 	       (match_operand:VWFMODES 3 "register_operand" "vr"))
-	     (match_operand:<VWMODES> 2 "register_operand" "0"))
+	     (match_operand:<VWMODE> 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -9059,12 +8895,12 @@
 
 ;; Narrowing Floating-Point/Integer Type-Convert Instructions
 
-(define_expand "<fix_cvt><viwfmodes><mode>2"
+(define_expand "<fix_cvt><viwfmode><mode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:CVT_VWIMODES 0 "register_operand")
-		   (unspec:CVT_VWIMODES
-		     [(any_fix:CVT_VWIMODES
-			(match_operand:<VIWFMODES> 1 "register_operand"))
+   (parallel [(set (match_operand:FCVT_VWIMODES 0 "register_operand")
+		   (unspec:FCVT_VWIMODES
+		     [(any_fix:FCVT_VWIMODES
+			(match_operand:<VIWFMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -9072,11 +8908,11 @@
 {
 })
 
-(define_insn "*<fix_cvt><viwfmodes><mode>2_nosetvl"
-  [(set (match_operand:CVT_VWIMODES 0 "register_operand" "=&vr")
-	(unspec:CVT_VWIMODES
-	  [(any_fix:CVT_VWIMODES
-	     (match_operand:<VIWFMODES> 1 "register_operand" "vr"))
+(define_insn "*<fix_cvt><viwfmode><mode>2_nosetvl"
+  [(set (match_operand:FCVT_VWIMODES 0 "register_operand" "=&vr")
+	(unspec:FCVT_VWIMODES
+	  [(any_fix:FCVT_VWIMODES
+	     (match_operand:<VIWFMODE> 1 "register_operand" "vr"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -9085,15 +8921,15 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<fix_cvt><viwfmodes><mode>2_mask"
+(define_expand "<fix_cvt><viwfmode><mode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:CVT_VWIMODES 0 "register_operand")
-		   (unspec:CVT_VWIMODES
-		     [(if_then_else:CVT_VWIMODES
+   (parallel [(set (match_operand:FCVT_VWIMODES 0 "register_operand")
+		   (unspec:FCVT_VWIMODES
+		     [(if_then_else:FCVT_VWIMODES
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(any_fix:CVT_VWIMODES
-			  (match_operand:<VIWFMODES> 3 "register_operand"))
-			(match_operand:CVT_VWIMODES 2 "register_operand"))
+			(any_fix:FCVT_VWIMODES
+			  (match_operand:<VIWFMODE> 3 "register_operand"))
+			(match_operand:FCVT_VWIMODES 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -9101,14 +8937,14 @@
 {
 })
 
-(define_insn "*<fix_cvt><viwfmodes><mode>2_mask_nosetvl"
-  [(set (match_operand:CVT_VWIMODES 0 "register_operand" "=vr")
-	(unspec:CVT_VWIMODES
-	  [(if_then_else:CVT_VWIMODES
+(define_insn "*<fix_cvt><viwfmode><mode>2_mask_nosetvl"
+  [(set (match_operand:FCVT_VWIMODES 0 "register_operand" "=vr")
+	(unspec:FCVT_VWIMODES
+	  [(if_then_else:FCVT_VWIMODES
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (any_fix:CVT_VWIMODES
-	       (match_operand:<VIWFMODES> 3 "register_operand" "vr"))
-	     (match_operand:CVT_VWIMODES 2 "register_operand" "0"))
+	     (any_fix:FCVT_VWIMODES
+	       (match_operand:<VIWFMODE> 3 "register_operand" "vr"))
+	     (match_operand:FCVT_VWIMODES 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -9117,12 +8953,12 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<fcvt_xf><viwfmodes><mode>2"
+(define_expand "<fcvt_xf><viwfmode><mode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:CVT_VWIMODES 0 "register_operand")
-		   (unspec:CVT_VWIMODES
-		     [(unspec:CVT_VWIMODES
-			[(match_operand:<VIWFMODES> 1 "register_operand")]
+   (parallel [(set (match_operand:FCVT_VWIMODES 0 "register_operand")
+		   (unspec:FCVT_VWIMODES
+		     [(unspec:FCVT_VWIMODES
+			[(match_operand:<VIWFMODE> 1 "register_operand")]
 		       UNSPEC_FCVT)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -9131,11 +8967,11 @@
 {
 })
 
-(define_insn "*<fcvt_xf><viwfmodes><mode>2_nosetvl"
-  [(set (match_operand:CVT_VWIMODES 0 "register_operand" "=&vr")
-	(unspec:CVT_VWIMODES
-	  [(unspec:CVT_VWIMODES
-	     [(match_operand:<VIWFMODES> 1 "register_operand" "vr")]
+(define_insn "*<fcvt_xf><viwfmode><mode>2_nosetvl"
+  [(set (match_operand:FCVT_VWIMODES 0 "register_operand" "=&vr")
+	(unspec:FCVT_VWIMODES
+	  [(unspec:FCVT_VWIMODES
+	     [(match_operand:<VIWFMODE> 1 "register_operand" "vr")]
 	    UNSPEC_FCVT)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -9145,16 +8981,16 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<fcvt_xf><viwfmodes><mode>2_mask"
+(define_expand "<fcvt_xf><viwfmode><mode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
-   (parallel [(set (match_operand:CVT_VWIMODES 0 "register_operand")
-		   (unspec:CVT_VWIMODES
-		     [(if_then_else:CVT_VWIMODES
+   (parallel [(set (match_operand:FCVT_VWIMODES 0 "register_operand")
+		   (unspec:FCVT_VWIMODES
+		     [(if_then_else:FCVT_VWIMODES
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
-			(unspec:CVT_VWIMODES
-			  [(match_operand:<VIWFMODES> 3 "register_operand")]
+			(unspec:FCVT_VWIMODES
+			  [(match_operand:<VIWFMODE> 3 "register_operand")]
 			 UNSPEC_FCVT)
-		       (match_operand:CVT_VWIMODES 2 "register_operand"))
+		       (match_operand:FCVT_VWIMODES 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -9162,15 +8998,15 @@
 {
 })
 
-(define_insn "*<fcvt_xf><viwfmodes><mode>2_mask_nosetvl"
-  [(set (match_operand:CVT_VWIMODES 0 "register_operand" "=vr")
-	(unspec:CVT_VWIMODES
-	  [(if_then_else:CVT_VWIMODES
+(define_insn "*<fcvt_xf><viwfmode><mode>2_mask_nosetvl"
+  [(set (match_operand:FCVT_VWIMODES 0 "register_operand" "=vr")
+	(unspec:FCVT_VWIMODES
+	  [(if_then_else:FCVT_VWIMODES
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
-	     (unspec:CVT_VWIMODES
-	       [(match_operand:<VIWFMODES> 3 "register_operand" "vr")]
+	     (unspec:FCVT_VWIMODES
+	       [(match_operand:<VIWFMODE> 3 "register_operand" "vr")]
 	      UNSPEC_FCVT)
-	     (match_operand:CVT_VWIMODES 2 "register_operand" "0"))
+	     (match_operand:FCVT_VWIMODES 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -9179,12 +9015,12 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<float_cvt><vfwimodes><mode>2"
+(define_expand "<float_cvt><vfwimode><mode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
    (parallel [(set (match_operand:VWFMODES 0 "register_operand")
 		   (unspec:VWFMODES
 		     [(any_float:VWFMODES
-			(match_operand:<VFWIMODES> 1 "register_operand"))
+			(match_operand:<VFWIMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -9192,11 +9028,11 @@
 {
 })
 
-(define_insn "*<float_cvt><vfwimodes><mode>2_nosetvl"
+(define_insn "*<float_cvt><vfwimode><mode>2_nosetvl"
   [(set (match_operand:VWFMODES 0 "register_operand" "=&vr")
 	(unspec:VWFMODES
 	  [(any_float:VWFMODES
-	     (match_operand:<VFWIMODES> 1 "register_operand" "vr"))
+	     (match_operand:<VFWIMODE> 1 "register_operand" "vr"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -9205,14 +9041,14 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "<float_cvt><vfwimodes><mode>2_mask"
+(define_expand "<float_cvt><vfwimode><mode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
    (parallel [(set (match_operand:VWFMODES 0 "register_operand")
 		   (unspec:VWFMODES
 		     [(if_then_else:VWFMODES
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
 			(any_float:VWFMODES
-			  (match_operand:<VFWIMODES> 3 "register_operand"))
+			  (match_operand:<VFWIMODE> 3 "register_operand"))
 			(match_operand:VWFMODES 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -9221,13 +9057,13 @@
 {
 })
 
-(define_insn "*<float_cvt><vfwimodes><mode>2_mask_nosetvl"
+(define_insn "*<float_cvt><vfwimode><mode>2_mask_nosetvl"
   [(set (match_operand:VWFMODES 0 "register_operand" "=vr")
 	(unspec:VWFMODES
 	  [(if_then_else:VWFMODES
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
 	     (any_float:VWFMODES
-	       (match_operand:<VFWIMODES> 3 "register_operand" "vr"))
+	       (match_operand:<VFWIMODE> 3 "register_operand" "vr"))
 	     (match_operand:VWFMODES 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -9237,12 +9073,12 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "trunc<vwfmode><mode>2"
+(define_expand "trunc<vwmode><mode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
    (parallel [(set (match_operand:VWFMODES 0 "register_operand")
 		   (unspec:VWFMODES
 		     [(float_truncate:VWFMODES
-			(match_operand:<VWMODES> 1 "register_operand"))
+			(match_operand:<VWMODE> 1 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
 	      (use (reg:<VLMODE> VTYPE_REGNUM))])]
@@ -9250,11 +9086,11 @@
 {
 })
 
-(define_insn "*trunc<vwfmode><mode>2_nosetvl"
+(define_insn "*trunc<vwmode><mode>2_nosetvl"
   [(set (match_operand:VWFMODES 0 "register_operand" "=&vr")
 	(unspec:VWFMODES
 	  [(float_truncate:VWFMODES
-	     (match_operand:<VWMODES> 1 "register_operand" "vr"))
+	     (match_operand:<VWMODE> 1 "register_operand" "vr"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
@@ -9263,14 +9099,14 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "trunc<vwfmode><mode>2_mask"
+(define_expand "trunc<vwmode><mode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
    (parallel [(set (match_operand:VWFMODES 0 "register_operand")
 		   (unspec:VWFMODES
 		     [(if_then_else:VWFMODES
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
 			(float_truncate:VWFMODES
-			  (match_operand:<VWMODES> 3 "register_operand"))
+			  (match_operand:<VWMODE> 3 "register_operand"))
 			(match_operand:VWFMODES 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -9279,13 +9115,13 @@
 {
 })
 
-(define_insn "*trunc<vwfmode><mode>2_mask_nosetvl"
+(define_insn "*trunc<vwmode><mode>2_mask_nosetvl"
   [(set (match_operand:VWFMODES 0 "register_operand" "=vr")
 	(unspec:VWFMODES
 	  [(if_then_else:VWFMODES
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
 	     (float_truncate:VWFMODES
-	       (match_operand:<VWMODES> 3 "register_operand" "vr"))
+	       (match_operand:<VWMODE> 3 "register_operand" "vr"))
 	     (match_operand:VWFMODES 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -9295,12 +9131,12 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "trunc_rod<vwfmode><mode>2"
+(define_expand "trunc_rod<vwmode><mode>2"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
    (parallel [(set (match_operand:VWFMODES 0 "register_operand")
 		   (unspec:VWFMODES
 		     [(unspec:VWFMODES
-			[(match_operand:<VWMODES> 1 "register_operand")]
+			[(match_operand:<VWMODE> 1 "register_operand")]
 		       UNSPEC_ROD)
 		      (reg:SI VL_REGNUM)]
 		    UNSPEC_USEVL))
@@ -9309,11 +9145,11 @@
 {
 })
 
-(define_insn "*trunc_rod<vwfmode><mode>2_nosetvl"
+(define_insn "*trunc_rod<vwmode><mode>2_nosetvl"
   [(set (match_operand:VWFMODES 0 "register_operand" "=&vr")
 	(unspec:VWFMODES
 	  [(unspec:VWFMODES
-	     [(match_operand:<VWMODES> 1 "register_operand" "vr")]
+	     [(match_operand:<VWMODE> 1 "register_operand" "vr")]
 	    UNSPEC_ROD)
 	   (reg:SI VL_REGNUM)]
 	 UNSPEC_USEVL))
@@ -9323,14 +9159,14 @@
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
-(define_expand "trunc_rod<vwfmode><mode>2_mask"
+(define_expand "trunc_rod<vwmode><mode>2_mask"
   [(set (reg:<VLMODE> VTYPE_REGNUM) (const_int UNSPECV_VSETVL))
    (parallel [(set (match_operand:VWFMODES 0 "register_operand")
 		   (unspec:VWFMODES
 		     [(if_then_else:VWFMODES
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
 			(unspec:VWFMODES
-			  [(match_operand:<VWMODES> 3 "register_operand")]
+			  [(match_operand:<VWMODE> 3 "register_operand")]
 			 UNSPEC_ROD)
 			(match_operand:VWFMODES 2 "register_operand"))
 		      (reg:SI VL_REGNUM)]
@@ -9340,13 +9176,13 @@
 {
 })
 
-(define_insn "*trunc_rod<vwfmode><mode>2_mask_nosetvl"
+(define_insn "*trunc_rod<vwmode><mode>2_mask_nosetvl"
   [(set (match_operand:VWFMODES 0 "register_operand" "=vr")
 	(unspec:VWFMODES
 	  [(if_then_else:VWFMODES
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
 	     (unspec:VWFMODES
-	       [(match_operand:<VWMODES> 3 "register_operand" "vr")]
+	       [(match_operand:<VWMODE> 3 "register_operand" "vr")]
 	      UNSPEC_ROD)
 	     (match_operand:VWFMODES 2 "register_operand" "0"))
 	   (reg:SI VL_REGNUM)]
@@ -9808,7 +9644,7 @@
    (parallel [(set (match_operand:VWIMODES 0 "register_operand")
 		   (unspec:VWIMODES
 		     [(unspec:VWIMODES
-			[(match_operand:<VWMODES> 1 "register_operand")
+			[(match_operand:<VWMODE> 1 "register_operand")
 			 (match_operand:VWIMODES 2 "vector_shift_operand")]
 		       UNSPEC_VCLIP)
 		      (reg:SI VL_REGNUM)]
@@ -9822,7 +9658,7 @@
   [(set (match_operand:VWIMODES 0 "register_operand" "=&vr,&vr")
 	(unspec:VWIMODES
 	  [(unspec:VWIMODES
-	     [(match_operand:<VWMODES> 1 "register_operand" "vr,vr")
+	     [(match_operand:<VWMODE> 1 "register_operand" "vr,vr")
 	      (match_operand:VWIMODES 2 "vector_shift_operand" "vr,vk")]
 	    UNSPEC_VCLIP)
 	   (reg:SI VL_REGNUM)]
@@ -9840,7 +9676,7 @@
    (parallel [(set (match_operand:VWIMODES 0 "register_operand")
 		   (unspec:VWIMODES
 		     [(unspec:VWIMODES
-			[(match_operand:<VWMODES> 1 "register_operand")
+			[(match_operand:<VWMODE> 1 "register_operand")
 			 (vec_duplicate:VWIMODES
 			   (match_operand:<VSUBMODE> 2 "register_operand"))]
 		       UNSPEC_VCLIP)
@@ -9855,7 +9691,7 @@
   [(set (match_operand:VWIMODES 0 "register_operand" "=&vr")
 	(unspec:VWIMODES
 	  [(unspec:VWIMODES
-	     [(match_operand:<VWMODES> 1 "register_operand" "vr")
+	     [(match_operand:<VWMODE> 1 "register_operand" "vr")
 	      (vec_duplicate:VWIMODES
 		(match_operand:<VSUBMODE> 2 "register_operand" "r"))]
 	    UNSPEC_VCLIP)
@@ -9874,7 +9710,7 @@
 		     [(if_then_else:VWIMODES
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
 			(unspec:VWIMODES
-			  [(match_operand:<VWMODES> 3 "register_operand")
+			  [(match_operand:<VWMODE> 3 "register_operand")
 			   (match_operand:VWIMODES 4 "vector_shift_operand")]
 			 UNSPEC_VCLIP)
 			(match_operand:VWIMODES 2 "register_operand"))
@@ -9891,7 +9727,7 @@
 	  [(if_then_else:VWIMODES
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm,vm")
 	     (unspec:VWIMODES
-	       [(match_operand:<VWMODES> 3 "register_operand" "vr,vr")
+	       [(match_operand:<VWMODE> 3 "register_operand" "vr,vr")
 		(match_operand:VWIMODES 4 "vector_shift_operand" "vr,vk")]
 	      UNSPEC_VCLIP)
 	     (match_operand:VWIMODES 2 "register_operand" "0,0"))
@@ -9912,7 +9748,7 @@
 		     [(if_then_else:VWIMODES
 			(match_operand:<VCMPEQUIV> 1 "register_operand")
 			(unspec:VWIMODES
-			  [(match_operand:<VWMODES> 3 "register_operand")
+			  [(match_operand:<VWMODE> 3 "register_operand")
 			   (vec_duplicate:VWIMODES
 			     (match_operand:<VSUBMODE> 4 "register_operand"))]
 			 UNSPEC_VCLIP)
@@ -9930,7 +9766,7 @@
 	  [(if_then_else:VWIMODES
 	     (match_operand:<VCMPEQUIV> 1 "register_operand" "vm")
 	     (unspec:VWIMODES
-	       [(match_operand:<VWMODES> 3 "register_operand" "vr")
+	       [(match_operand:<VWMODE> 3 "register_operand" "vr")
 		(vec_duplicate:VWIMODES
 		  (match_operand:<VSUBMODE> 4 "register_operand" "r"))]
 	      UNSPEC_VCLIP)
@@ -10251,7 +10087,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vle<eew>ff.v\t%0,%1"
+  "vle<sew>ff.v\t%0,%1"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10285,7 +10121,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vle<eew>ff.v\t%0,%1,%2.t"
+  "vle<sew>ff.v\t%0,%1,%2.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10325,7 +10161,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "<vamo><VIMODES:eew>.v\t%0,(%1),%2,%0"
+  "<vamo><VIMODES:sew>.v\t%0,(%1),%2,%0"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10365,7 +10201,7 @@
   "TARGET_VECTOR
    && known_eq (GET_MODE_NUNITS (<VMODES:MODE>mode),
 		GET_MODE_NUNITS (<VIMODES:MODE>mode))"
-  "<vamo><VIMODES:eew>.v\t%0,(%2),%3,%0,%1.t"
+  "<vamo><VIMODES:sew>.v\t%0,(%2),%3,%0,%1.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10425,7 +10261,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vlseg<NF>e<eew>.v\t%0, (%1)"
+  "vlseg<NF>e<sew>.v\t%0, (%1)"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10459,7 +10295,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vlseg<NF>e<eew>.v\t%0, (%1), %2.t"
+  "vlseg<NF>e<sew>.v\t%0, (%1), %2.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10555,7 +10391,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VTMODES:VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vlxseg<NF>ei<VIMODES:eew>.v\t%0, (%1), %2"
+  "vlxseg<NF>ei<VIMODES:sew>.v\t%0, (%1), %2"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10591,7 +10427,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VTMODES:VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vlxseg<NF>ei<VIMODES:eew>.v\t%0, (%1), %4, %2.t"
+  "vlxseg<NF>ei<VIMODES:sew>.v\t%0, (%1), %4, %2.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10623,7 +10459,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vlsseg<NF>e<eew>.v\t%0, (%1), %2"
+  "vlsseg<NF>e<sew>.v\t%0, (%1), %2"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10659,7 +10495,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vlsseg<NF>e<eew>.v\t%0, (%1), %4, %2.t"
+  "vlsseg<NF>e<sew>.v\t%0, (%1), %4, %2.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10689,7 +10525,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vsseg<NF>e<eew>.v\t%1, (%0)"
+  "vsseg<NF>e<sew>.v\t%1, (%0)"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10721,7 +10557,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vsseg<NF>e.v\t%1, (%0), %2.t"
+  "vsseg<NF>e<sew>.v\t%1, (%0), %2.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10753,7 +10589,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VTMODES:VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vsxseg<NF>ei<VIMODES:eew>.v\t%1, (%0), %2"
+  "vsxseg<NF>ei<VIMODES:sew>.v\t%1, (%0), %2"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10787,7 +10623,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VTMODES:VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vsxseg<NF>ei<VIMODES:eew>.v\t%1, (%0), %3, %2.t"
+  "vsxseg<NF>ei<VIMODES:sew>.v\t%1, (%0), %3, %2.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10819,7 +10655,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vssseg<NF>e<eew>.v\t%1, (%0), %2"
+  "vssseg<NF>e<sew>.v\t%1, (%0), %2"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -10853,7 +10689,7 @@
 	 UNSPEC_USEVL))
    (use (reg:<VLMODE> VTYPE_REGNUM))]
   "TARGET_VECTOR"
-  "vssseg<NF>e<eew>.v\t%1, (%0), %3, %2.t"
+  "vssseg<NF>e<sew>.v\t%1, (%0), %3, %2.t"
   [(set_attr "type" "vector")
    (set_attr "mode" "none")])
 
@@ -11052,4 +10888,16 @@
 {
   riscv_expand_vtuple_create (operands);
   DONE;
+})
+
+(define_expand "vundefined_<mode>"
+  [(clobber (match_operand:VMODES 0 "register_operand"))]
+  "TARGET_VECTOR"
+{
+})
+
+(define_expand "vundefined_<mode>"
+  [(clobber (match_operand:VTMODES 0 "register_operand"))]
+  "TARGET_VECTOR"
+{
 })
