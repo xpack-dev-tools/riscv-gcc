@@ -48,6 +48,57 @@ typedef __fp16 __float16_t;
 typedef float __float32_t;
 typedef double __float64_t;
 
+enum RVV_CSR {
+  RVV_VSTART = 0,
+  RVV_VXSAT,
+  RVV_VXRM,
+  RVV_VCSR,
+};
+
+__extension__ extern __inline
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
+unsigned long vread_csr(enum RVV_CSR csr)
+{
+  unsigned long rv = 0;
+  switch (csr)
+    {
+    case RVV_VSTART:
+      asm volatile ("csrr\t%0,vstart" : "=r"(rv) : : "memory");
+      break;
+    case RVV_VXSAT:
+      asm volatile ("csrr\t%0,vxsat" : "=r"(rv) : : "memory");
+      break;
+    case RVV_VXRM:
+      asm volatile ("csrr\t%0,vxrm" : "=r"(rv) : : "memory");
+      break;
+    case RVV_VCSR:
+      asm volatile ("csrr\t%0,vcsr" : "=r"(rv) : : "memory");
+      break;
+    }
+  return rv;
+}
+
+__extension__ extern __inline
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
+void vwrite_csr(enum RVV_CSR csr, unsigned long value)
+{
+  switch (csr)
+    {
+    case RVV_VSTART:
+      asm volatile ("csrw\tvstart,%z0" : : "rJ"(value) : "memory");
+      break;
+    case RVV_VXSAT:
+      asm volatile ("csrw\tvxsat,%z0" : : "rJ"(value) : "memory");
+      break;
+    case RVV_VXRM:
+      asm volatile ("csrw\tvxrm,%z0" : : "rJ"(value) : "memory");
+      break;
+    case RVV_VCSR:
+      asm volatile ("csrw\tvcsr,%z0" : : "rJ"(value) : "memory");
+      break;
+    }
+}
+
 /* An iterator to call a macro with every supported MLEN for masking
    operations.  */
 #define _RVV_MASK_ITERATOR(MACRO, ...)				\
@@ -3243,25 +3294,25 @@ __extension__ extern __inline vfloat##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vreinterpret_v_i##SEW##m##LMUL##_f##SEW##m##LMUL (vint##SEW##m##LMUL##_t a)\
 {									\
-  return __builtin_riscv_vreinterpret_f##SEW##_i##SEW##_v_##SEW##m##LMUL (a);\
+  return __builtin_riscv_vreinterpret_v_i##SEW##m##LMUL##_f##SEW##m##LMUL (a);\
 }									\
 __extension__ extern __inline vfloat##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vreinterpret_v_u##SEW##m##LMUL##_f##SEW##m##LMUL (vuint##SEW##m##LMUL##_t a)\
 {									\
-  return __builtin_riscv_vreinterpret_f##SEW##_u##SEW##_v_##SEW##m##LMUL (a);\
+  return __builtin_riscv_vreinterpret_v_u##SEW##m##LMUL##_f##SEW##m##LMUL (a);\
 }									\
 __extension__ extern __inline vint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vreinterpret_v_f##SEW##m##LMUL##_i##SEW##m##LMUL (vfloat##SEW##m##LMUL##_t a)\
 {									\
-  return __builtin_riscv_vreinterpret_i##SEW##_f##SEW##_v_##SEW##m##LMUL (a);\
+  return __builtin_riscv_vreinterpret_v_f##SEW##m##LMUL##_i##SEW##m##LMUL (a);\
 }									\
 __extension__ extern __inline vuint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vreinterpret_v_f##SEW##m##LMUL##_u##SEW##m##LMUL (vfloat##SEW##m##LMUL##_t a)\
 {									\
-  return __builtin_riscv_vreinterpret_u##SEW##_f##SEW##_v_##SEW##m##LMUL (a);\
+  return __builtin_riscv_vreinterpret_v_f##SEW##m##LMUL##_u##SEW##m##LMUL (a);\
 }
 
 #define _RVV_VREINTERPRET_INT(SEW, LMUL, MLEN, T)			\
@@ -3269,18 +3320,56 @@ __extension__ extern __inline vint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vreinterpret_v_u##SEW##m##LMUL##_i##SEW##m##LMUL (vuint##SEW##m##LMUL##_t a)\
 {									\
-  return __builtin_riscv_vreinterpret_i##SEW##_u##SEW##_v_##SEW##m##LMUL (a);\
+  return __builtin_riscv_vreinterpret_v_u##SEW##m##LMUL##_i##SEW##m##LMUL (a);\
 }									\
 __extension__ extern __inline vuint##SEW##m##LMUL##_t			\
 __attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
 vreinterpret_v_i##SEW##m##LMUL##_u##SEW##m##LMUL (vint##SEW##m##LMUL##_t a)\
 {									\
-  return __builtin_riscv_vreinterpret_u##SEW##_i##SEW##_v_##SEW##m##LMUL (a);\
+  return __builtin_riscv_vreinterpret_v_i##SEW##m##LMUL##_u##SEW##m##LMUL (a);\
 }
 
 _RVV_FLOAT_ITERATOR (_RVV_VREINTERPRET)
 
 _RVV_INT_ITERATOR (_RVV_VREINTERPRET_INT)
+
+#define _RVV_VREINTERPRET_XSEW_INT(SEW, LMUL, MLEN, T, XSEW, XLMUL)	\
+__extension__ extern __inline vint##XSEW##m##XLMUL##_t			\
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
+vreinterpret_v_u##SEW##m##LMUL##_i##XSEW##m##XLMUL (vuint##SEW##m##LMUL##_t a)\
+{									\
+  return __builtin_riscv_vreinterpret_v_u##SEW##m##LMUL##_i##XSEW##m##XLMUL (a);\
+}									\
+__extension__ extern __inline vuint##XSEW##m##XLMUL##_t			\
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
+vreinterpret_v_i##SEW##m##LMUL##_u##XSEW##m##XLMUL (vint##SEW##m##LMUL##_t a)\
+{									\
+  return __builtin_riscv_vreinterpret_v_i##SEW##m##LMUL##_u##XSEW##m##XLMUL (a);\
+}									\
+__extension__ extern __inline vint##XSEW##m##XLMUL##_t			\
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
+vreinterpret_v_i##SEW##m##LMUL##_i##XSEW##m##XLMUL (vint##SEW##m##LMUL##_t a)\
+{									\
+  return __builtin_riscv_vreinterpret_v_i##SEW##m##LMUL##_i##XSEW##m##XLMUL (a);\
+}									\
+__extension__ extern __inline vuint##XSEW##m##XLMUL##_t			\
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
+vreinterpret_v_u##SEW##m##LMUL##_u##XSEW##m##XLMUL (vuint##SEW##m##LMUL##_t a)\
+{									\
+  return __builtin_riscv_vreinterpret_v_u##SEW##m##LMUL##_u##XSEW##m##XLMUL (a);\
+}
+
+_RVV_INT_REINT_ITERATOR (_RVV_VREINTERPRET_XSEW_INT)
+
+#define _RVV_VREINTERPRET_XSEW_FLOAT(SEW, LMUL, MLEN, T, XSEW, XLMUL)	\
+__extension__ extern __inline vfloat##XSEW##m##XLMUL##_t		\
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))	\
+vreinterpret_v_f##SEW##m##LMUL##_f##XSEW##m##XLMUL (vfloat##SEW##m##LMUL##_t a)\
+{									\
+  return __builtin_riscv_vreinterpret_v_f##SEW##m##LMUL##_f##XSEW##m##XLMUL (a);\
+}									\
+
+_RVV_FLOAT_REINT_ITERATOR (_RVV_VREINTERPRET_XSEW_FLOAT)
 
 #define _RVV_MAC_FLOAT(SEW, LMUL, MLEN, T, OP)				\
 __extension__ extern __inline vfloat##SEW##m##LMUL##_t			\

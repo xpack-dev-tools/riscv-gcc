@@ -13,13 +13,16 @@
   VNx2DF VNx4DF VNx8DF VNx16DF
 ])
 
-;; All vector modes with LMUL 1.
-(define_mode_iterator V1_FIMODES [
-  VNx16QI VNx8HI VNx4SI VNx2DI
-  VNx8HF VNx4SF VNx2DF])
-
 ;; All vector modes supported for integer load/store/alu.
 (define_mode_iterator VIMODES [
+  VNx16QI VNx32QI VNx64QI VNx128QI
+  VNx8HI VNx16HI VNx32HI VNx64HI
+  VNx4SI VNx8SI VNx16SI VNx32SI
+  VNx2DI VNx4DI VNx8DI VNx16DI
+])
+
+;; Same as VIMODES, used for combination.
+(define_mode_iterator VIMODES2 [
   VNx16QI VNx32QI VNx64QI VNx128QI
   VNx8HI VNx16HI VNx32HI VNx64HI
   VNx4SI VNx8SI VNx16SI VNx32SI
@@ -44,6 +47,13 @@
 
 ;; All vector modes supported for FP load/store/alu.
 (define_mode_iterator VFMODES [
+  VNx8HF VNx16HF VNx32HF VNx64HF
+  VNx4SF VNx8SF VNx16SF VNx32SF
+  VNx2DF VNx4DF VNx8DF VNx16DF
+])
+
+;; Same as VFMODES, used for combination.
+(define_mode_iterator VFMODES2 [
   VNx8HF VNx16HF VNx32HF VNx64HF
   VNx4SF VNx8SF VNx16SF VNx32SF
   VNx2DF VNx4DF VNx8DF VNx16DF
