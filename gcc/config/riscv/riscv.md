@@ -32,9 +32,18 @@
   UNSPEC_TLS_LE
   UNSPEC_TLS_IE
   UNSPEC_TLS_GD
+  ;; Compact code model.
+  UNSPEC_GPREL
+  UNSPEC_GOT_GPREL
+  UNSPEC_GPREL_ADD
+  UNSPEC_COMPACT_TLS_GD
+  UNSPEC_COMPACT_TLS_IE
 
   ;; High part of PC-relative address.
   UNSPEC_AUIPC
+
+  ;; Initial global pointer
+  UNSPEC_COMPACT_GP
 
   ;; Floating-point unspecs.
   UNSPEC_FLT_QUIET
@@ -1441,6 +1450,17 @@
   [(set_attr "got" "load")
    (set_attr "mode" "<MODE>")])
 
+(define_insn "compact_got_load_tls_gd<mode>"
+  [(set (match_operand:P      0 "register_operand" "=&r")
+	(unspec:P
+	    [(match_operand:P 1 "symbolic_operand" "")
+	     (match_operand:P 2 "register_operand" "r")]
+	    UNSPEC_COMPACT_TLS_GD))]
+  "COMPACT_CMODEL_P"
+  "la.tls.gd\t%0,%1,%2"
+  [(set_attr "got" "load")
+   (set_attr "mode" "<MODE>")])
+
 (define_insn "got_load_tls_ie<mode>"
   [(set (match_operand:P      0 "register_operand" "=r")
 	(unspec:P
@@ -1448,6 +1468,17 @@
 	    UNSPEC_TLS_IE))]
   ""
   "la.tls.ie\t%0,%1"
+  [(set_attr "got" "load")
+   (set_attr "mode" "<MODE>")])
+
+(define_insn "compact_got_load_tls_ie<mode>"
+  [(set (match_operand:P      0 "register_operand" "=&r")
+	(unspec:P
+	    [(match_operand:P 1 "symbolic_operand" "")
+	     (match_operand:P 2 "register_operand" "r")]
+	    UNSPEC_COMPACT_TLS_IE))]
+  "COMPACT_CMODEL_P"
+  "la.tls.ie\t%0,%1,%2"
   [(set_attr "got" "load")
    (set_attr "mode" "<MODE>")])
 
@@ -1473,6 +1504,64 @@
 		  (match_operand:P 2 "symbolic_operand" "")))]
   ""
   "addi\t%0,%1,%R2"
+  [(set_attr "type" "arith")
+   (set_attr "mode" "<MODE>")])
+
+;; Compact code model.
+
+(define_insn "init_compact_gp<mode>"
+  [(set (match_operand:P    0 "register_operand" "+r")
+	(unspec:P
+	  [(match_operand:P 1 "symbolic_operand" "")
+	   (pc)]
+	  UNSPEC_COMPACT_GP))]
+  "COMPACT_CMODEL_P"
+  "1:\n\tauipc\t%0 ,%%pcrel_hi(%1)\n\taddi\t%0, %0, %%pcrel_lo(1b)"
+  [(set_attr "type" "multi")
+   (set_attr "mode" "<MODE>")])
+
+(define_insn "got_gprel_add<mode>"
+  [(set (match_operand:P    0 "register_operand" "=r")
+	(unspec:P
+	  [(match_operand:P 1 "register_operand" "r")
+	   (match_operand:P 2 "register_operand" "r")
+	   (match_operand:P 3 "symbolic_operand" "")]
+	  UNSPEC_GOT_GPREL))]
+  "COMPACT_CMODEL_P"
+  "add\t%0,%1,%2,%%got_gprel(%3)"
+  [(set_attr "type" "arith")
+   (set_attr "mode" "<MODE>")])
+
+;; Split lui and addi instructions,
+;; it helps optimization for loop invariant motion.
+(define_insn_and_split "compact_gprel<mode>"
+  [(set (match_operand:P    0 "register_operand" "=&r")
+	(unspec:P
+	  [(match_operand:P 1 "register_operand" "r")
+	   (match_operand:P 2 "symbolic_operand" "")]
+	  UNSPEC_GPREL))]
+  "COMPACT_CMODEL_P"
+  "#"
+  "&& 1"
+  [(set (match_dup 0)
+	(high:P (match_dup 2)))
+   (set (match_dup 0)
+	(unspec:P
+	  [(match_dup 0)
+	   (match_dup 1)
+	   (match_dup 2)]UNSPEC_GPREL_ADD))]
+  ""
+)
+
+(define_insn "gprel_add<mode>"
+  [(set (match_operand:P    0 "register_operand" "=r")
+	(unspec:P
+	  [(match_operand:P 1 "register_operand" "0")
+	   (match_operand:P 2 "register_operand" "r")
+	   (match_operand:P 3 "symbolic_operand" "")]
+	  UNSPEC_GPREL_ADD))]
+  "COMPACT_CMODEL_P"
+  "add\t%0,%1,%2,%%gprel(%3)"
   [(set_attr "type" "arith")
    (set_attr "mode" "<MODE>")])
 

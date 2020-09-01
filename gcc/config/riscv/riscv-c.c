@@ -103,6 +103,12 @@ riscv_cpu_cpp_builtins (cpp_reader *pfile)
       builtin_define ("__riscv_cmodel_medany");
       break;
 
+    case CM_COMPACT:
+      if (flag_pic)
+	builtin_define ("__riscv_cmodel_pic");
+
+      builtin_define ("__riscv_cmodel_compact");
+      break;
     }
 
   if (TARGET_VECTOR)
