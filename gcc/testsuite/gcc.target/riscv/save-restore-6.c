@@ -1,4 +1,4 @@
-/* { dg-options "-Os -msave-restore" } */
+/* { dg-options "-Os -msave-restore -mcmodel=medlow" } */
 
 /* With -msave-restore in use GCC should be able to remove the calls to the
    save and restore stubs in this case, replacing them with a tail call to

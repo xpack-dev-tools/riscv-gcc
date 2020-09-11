@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-march=rv32i -mabi=ilp32 -O2" } */
+/* { dg-options "-march=rv32i -mabi=ilp32 -O2 -mcmodel=medlow" } */
 
 /* One zero-extend shift can be eliminated by modifying the constant in the
    greater than test.  Started working after modifying the splitter

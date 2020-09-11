@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-march=rv32gc -mabi=ilp32 -O" } */
+/* { dg-options "-march=rv32gc -mabi=ilp32 -mcmodel=medlow -O" } */
 
 /* Test for lshrsi3_zero_extend_3+1 pattern that uses p2m1_shift_operand.  */
 unsigned int

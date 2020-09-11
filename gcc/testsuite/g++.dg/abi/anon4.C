@@ -1,5 +1,6 @@
 // PR c++/65209
 // { dg-final { scan-assembler-not "comdat" } }
+/* { dg-skip-if "" { riscv*-*-* } { "-mcmodel=compact" } { "" } } */
 
 // Everything involving the anonymous namespace bits should be private, not
 // COMDAT.

@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-march=rv32gc -mabi=ilp32 -O" } */
+/* { dg-options "-march=rv32gc -mabi=ilp32 -mcmodel=medlow -O" } */
 
 /* Test for <optab>si3_mask.  */
 int
