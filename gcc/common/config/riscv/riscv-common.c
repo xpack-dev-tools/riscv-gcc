@@ -143,6 +143,11 @@ static const char *riscv_supported_std_ext (void);
 
 static riscv_subset_list *current_subset_list = NULL;
 
+const riscv_subset_list *riscv_current_subset_list ()
+{
+  return current_subset_list;
+}
+
 /* struct for recording multi-lib info.  */
 struct riscv_multi_lib_info_t {
   std::string path;

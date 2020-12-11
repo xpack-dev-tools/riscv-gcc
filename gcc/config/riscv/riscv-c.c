@@ -26,6 +26,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tm.h"
 #include "c-family/c-common.h"
 #include "cpplib.h"
+#include "riscv-protos.h"
 
 #define builtin_define(TXT) cpp_define (pfile, TXT)
 
@@ -113,4 +114,35 @@ riscv_cpu_cpp_builtins (cpp_reader *pfile)
 
   if (TARGET_VECTOR)
     builtin_define ("__riscv_vector");
+
+  /* Define architecture extension test macros.  */
+  builtin_define_with_int_value ("__riscv_arch_test", 1);
+
+  const riscv_subset_list *subset_list = riscv_current_subset_list ();
+  size_t max_ext_len = 0;
+
+  /* Figure out the max length of extension name for reserving buffer.   */
+  for (const riscv_subset_t *subset = subset_list->begin ();
+       subset != subset_list->end ();
+       subset = subset->next)
+    max_ext_len = MAX (max_ext_len, subset->name.length ());
+
+
+  char *buf = (char *)alloca (max_ext_len + 10 /* For __riscv_ and '\0'.  */);
+
+  for (const riscv_subset_t *subset = subset_list->begin ();
+       subset != subset_list->end ();
+       subset = subset->next)
+    {
+      int version_value = (subset->major_version * 1000000)
+			  + (subset->minor_version * 1000);
+      /* Special rule for zicsr and zifencei, it's used for ISA spec 2.2 or
+	 earlier.  */
+      if ((subset->name == "zicsr" || subset->name == "zifencei")
+	  && version_value == 0)
+	version_value = 2000000;
+
+      sprintf (buf, "__riscv_%s", subset->name.c_str ());
+      builtin_define_with_int_value (buf, version_value);
+    }
 }
