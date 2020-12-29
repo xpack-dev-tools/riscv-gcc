@@ -215,9 +215,11 @@ struct riscv_multi_lib_info_t {
   std::string path;
   std::string arch_str;
   std::string abi_str;
+  std::string other_cond;
   riscv_subset_list *subset_list;
 
   static bool parse (struct riscv_multi_lib_info_t *,
+		     const std::string &,
 		     const std::string &);
 };
 
@@ -1212,6 +1214,10 @@ riscv_expand_arch_from_cpu (int argc ATTRIBUTE_UNUSED,
   return xasprintf ("-march=%s", arch.c_str());
 }
 
+/* Find last switch with the prefix, options are take last one in general,
+   return NULL if not found, and return the option value if found, it could
+   return empty string if the option has no value.  */
+
 static const char *
 find_last_appear_switch (
   const struct switchstr *switches,
@@ -1234,11 +1240,16 @@ find_last_appear_switch (
   return NULL;
 }
 
+/* Parse the path and cond string into riscv_multi_lib_info_t, return false
+   if parsing failed. */
+
 bool
 riscv_multi_lib_info_t::parse (
   struct riscv_multi_lib_info_t *multi_lib_info,
-  const std::string &path)
+  const std::string &path,
+  const std::string &cond)
 {
+  multi_lib_info->other_cond = cond;
   if (path == ".")
     {
       multi_lib_info->arch_str = STRINGIZING (TARGET_RISCV_DEFAULT_ARCH);
@@ -1250,13 +1261,26 @@ riscv_multi_lib_info_t::parse (
     }
   else
     {
-      size_t slash_pos = path.find('/');
+      /* XXX: Maybe we should parse that from cond string rather than path.  */
+      /* The path rule for RISC-V multi-lib is <arch>/<abi>[/<others>].  */
+      size_t slash_pos = path.find ('/');
 
+      /* Parse failed if not found any `/`.  */
       if (slash_pos == std::string::npos)
 	return false;
 
-      multi_lib_info->arch_str = path.substr(0, slash_pos);
-      multi_lib_info->abi_str = path.substr(slash_pos + 1, path.length() - 1);
+      /* Seeking if there is other part in the path.  */
+      size_t end_of_abi = path.find ('/', slash_pos + 1);
+
+      multi_lib_info->arch_str = path.substr (0, slash_pos);
+      if (end_of_abi == std::string::npos)
+	/* Only <arch>/<abi>.  */
+	multi_lib_info->abi_str = path.substr (slash_pos + 1,
+					       path.length () - 1);
+      else
+	/* <arch>/<abi>/<others>....  */
+	multi_lib_info->abi_str = path.substr (slash_pos + 1,
+					       end_of_abi - slash_pos - 1);
    }
 
   multi_lib_info->subset_list =
@@ -1265,6 +1289,7 @@ riscv_multi_lib_info_t::parse (
   return true;
 }
 
+/* Report error if not found suitable multilib.  */
 const char *
 riscv_multi_lib_check (int argc ATTRIBUTE_UNUSED,
 		       const char **argv ATTRIBUTE_UNUSED)
@@ -1277,6 +1302,78 @@ riscv_multi_lib_check (int argc ATTRIBUTE_UNUSED,
       riscv_current_abi_str.c_str ());
 
   return "";
+}
+
+static bool
+riscv_check_cond (
+  const struct switchstr *switches,
+  int n_switches,
+  const std::string &arg,
+  bool not_arg)
+{
+  int i;
+  for (i = 0; i < n_switches; ++i) {
+    const struct switchstr *this_switch = &switches[n_switches - i - 1];
+
+    if ((this_switch->live_cond & SWITCH_IGNORE) != 0)
+      continue;
+
+    if (this_switch->live_cond & SWITCH_FALSE)
+      continue;
+
+    if (arg == this_switch->part1)
+      return not_arg ? false : true;
+  }
+
+  /* Not found this arg, that's ok!  */
+  return not_arg ? true : false;
+}
+
+/* Check the other cond is found or not, return    */
+
+static int
+riscv_check_other_cond (
+  const struct switchstr *switches,
+  int n_switches,
+  int match_score,
+  const std::string &other_cond)
+{
+  const char *p = other_cond.c_str ();
+  const char *this_arg;
+  std::string arg;
+  bool not_arg;
+  bool ok;
+  int ok_count = 0;
+
+  while (*p != '\0')
+    {
+      while (*p == ' ') p++;
+      this_arg = p;
+      while (*p != ' ' && *p != '\0')
+	++p;
+
+      if (*this_arg != '!')
+	not_arg = false;
+      else
+	{
+	  not_arg = true;
+	  ++this_arg;
+	}
+
+      arg = std::string (this_arg, p - this_arg);
+      ok = riscv_check_cond (switches, n_switches, arg, not_arg);
+
+      if (!ok)
+	return -1;
+
+      ok_count++;
+
+      if (*p == '\0') break;
+
+      p++;
+    }
+
+  return match_score + ok_count * 100;
 }
 
 /* We only override this in bare-matel toolchain.  */
@@ -1294,9 +1391,13 @@ riscv_compute_multilib (
   const char *multilib_exclusions ATTRIBUTE_UNUSED,
   const char *multilib_reuse ATTRIBUTE_UNUSED)
 {
-  const char *p;
+  const char *p, *tp;
   const char *this_path;
+  const char *this_cond;
   size_t this_path_len;
+  size_t this_cond_len;
+  size_t offset;
+  bool skip_until_blank;
   bool result;
   riscv_no_matched_multi_lib = false;
   riscv_subset_list *subset_list = NULL;
@@ -1354,6 +1455,7 @@ riscv_compute_multilib (
       this_path_len = p - this_path;
       multilib_info.path = std::string (this_path, this_path_len);
 
+      this_cond = p;
       while (*p != ';')
 	{
 	  if (*p == '\0')
@@ -1364,10 +1466,39 @@ riscv_compute_multilib (
 	  ++p;
 	}
 
+      /* Ignore march or mabi option in cond string.  */
+      tp = this_cond;
+      skip_until_blank = false;
+
+      while (*tp != ';')
+	{
+	  offset = 0;
+	  if (*tp == '!')
+	    offset = 1;
+
+	  if (skip_until_blank && *tp == ' ')
+	    {
+	      skip_until_blank = false;
+	      this_cond = tp + 1;
+	    }
+
+	  if ((strncmp (tp + offset, "mabi", 4) == 0) ||
+	      (strncmp (tp + offset, "march", 5) == 0))
+	    skip_until_blank = true;
+
+	  ++tp;
+	}
+
+      if (skip_until_blank)
+	this_cond_len = 0;
+      else
+	this_cond_len = p - this_cond;
+
       result =
 	riscv_multi_lib_info_t::parse (
 	  &multilib_info,
-	  std::string (this_path, this_path_len));
+	  std::string (this_path, this_path_len),
+	  std::string (this_cond, this_cond_len));
 
       if (result)
 	multilib_infos.push_back (multilib_info);
@@ -1390,6 +1521,12 @@ riscv_compute_multilib (
       /* Found a potential compatible multi-lib setting!
 	 Calculate the match score.  */
       match_score = subset_list->match_score (multilib_infos[i].subset_list);
+
+      /* Checking other cond in the multi-lib setting.  */
+      match_score = riscv_check_other_cond (switches,
+					    n_switches,
+					    match_score,
+					    multilib_infos[i].other_cond);
 
       /* Record highest match score multi-lib setting.  */
       if (match_score > max_match_score)
