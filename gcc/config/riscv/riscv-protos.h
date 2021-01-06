@@ -22,8 +22,6 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef GCC_RISCV_PROTOS_H
 #define GCC_RISCV_PROTOS_H
 
-#include <string>
-
 /* Symbol types we understand.  The order of this list must match that of
    the unspec enum in riscv.md, subsequent to UNSPEC_ADDRESS_FIRST.  */
 enum riscv_symbol_type {
@@ -119,77 +117,5 @@ extern const riscv_cpu_info *riscv_find_cpu (const char *);
 
 /* Routines for vector tuple types.  */
 extern int riscv_get_nf (machine_mode);
-
-/* Subset info.  */
-struct riscv_subset_t
-{
-  riscv_subset_t ();
-
-  std::string name;
-  int major_version;
-  int minor_version;
-  struct riscv_subset_t *next;
-
-  bool explicit_version_p;
-  bool implied_p;
-};
-
-#define RISCV_DONT_CARE_VERSION -1
-
-/* Subset list.  */
-class riscv_subset_list
-{
-private:
-  /* Original arch string.  */
-  const char *m_arch;
-
-  /* Location of arch string, used for report error.  */
-  location_t m_loc;
-
-  /* Head of subset info list.  */
-  riscv_subset_t *m_head;
-
-  /* Tail of subset info list.  */
-  riscv_subset_t *m_tail;
-
-  /* X-len of m_arch. */
-  unsigned m_xlen;
-
-  riscv_subset_list (const char *, location_t);
-
-  const char *parsing_subset_version (const char *, const char *, unsigned *,
-				      unsigned *, bool, bool *);
-
-  const char *parse_std_ext (const char *);
-
-  const char *parse_multiletter_ext (const char *, const char *,
-				     const char *);
-
-  void handle_implied_ext (riscv_subset_t *);
-
-public:
-  ~riscv_subset_list ();
-
-  void add (const char *, int, int, bool, bool);
-
-  void add (const char *, bool);
-
-  riscv_subset_t *lookup (const char *,
-			  int major_version = RISCV_DONT_CARE_VERSION,
-			  int minor_version = RISCV_DONT_CARE_VERSION) const;
-
-  std::string to_string (bool) const;
-
-  unsigned xlen () const {return m_xlen;};
-
-  static riscv_subset_list *parse (const char *, location_t);
-
-  int match_score (riscv_subset_list *) const;
-
-  const riscv_subset_t *begin () const {return m_head;};
-  const riscv_subset_t *end () const {return NULL;};
-};
-
-extern const riscv_subset_list *riscv_current_subset_list (void);
 
 #endif /* ! GCC_RISCV_PROTOS_H */

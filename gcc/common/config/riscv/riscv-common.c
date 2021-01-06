@@ -30,6 +30,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "flags.h"
 #include "diagnostic-core.h"
 #include "config/riscv/riscv-protos.h"
+#include "config/riscv/riscv-subset.h"
 #include <vector>
 
 /* Type for implied ISA info.  */
