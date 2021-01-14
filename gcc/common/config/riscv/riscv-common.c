@@ -1284,6 +1284,9 @@ riscv_check_other_cond (
   bool ok;
   int ok_count = 0;
 
+  if (match_score == 0)
+    return 0;
+
   while (*p != '\0')
     {
       while (*p == ' ') p++;
