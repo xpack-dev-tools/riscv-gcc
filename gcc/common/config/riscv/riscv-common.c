@@ -1320,6 +1320,9 @@ riscv_check_other_cond (
       p++;
     }
 
+  /* 100 is magic number, it's just used for make sure this multi-lib has
+     higher priority if we found any some option is listed in the option check
+     list. */
   return match_score + ok_count * 100;
 }
 
