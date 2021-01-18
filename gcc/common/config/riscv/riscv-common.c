@@ -1303,6 +1303,11 @@ riscv_check_other_cond (
 	}
 
       arg = std::string (this_arg, p - this_arg);
+
+      /* We might got empty arg when multi-lib is disabled.  */
+      if (arg.empty ())
+	continue;
+
       ok = riscv_check_cond (switches, n_switches, arg, not_arg);
 
       if (!ok)
