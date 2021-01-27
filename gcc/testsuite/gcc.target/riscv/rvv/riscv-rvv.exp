@@ -16,6 +16,9 @@
 
 # GCC testsuite that uses the `dg.exp' driver.
 
+# Always skip for now, since we don't install the vector intrinsic header now.
+return
+
 # Exit immediately if this isn't a RISC-V target.
 if ![istarget riscv*-*-*] then {
   return
