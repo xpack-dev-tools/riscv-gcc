@@ -63,13 +63,22 @@ validate_macosx_version_min (const char *version_str)
     need_rewrite = true;
 
   major = strtoul (version_str, &end, 10);
-  version_str = end + ((*end == '.') ? 1 : 0);
 
-  if (major != 10) /* So far .. all MacOS 10 ... */
+  if (major < 10 || major > 12 ) /* macOS 10, 11, and 12 are known. */
     return NULL;
 
-  /* Version string components must be present and numeric.  */
-  if (!ISDIGIT (version_str[0]))
+  /* Skip a separating period, if there's one.  */
+  version_str = end + ((*end == '.') ? 1 : 0);
+
+  if (major > 10 && *end != '\0' && !ISDIGIT (version_str[0]))
+     /* For macOS 11+, we allow just the major number, but if the minor is
+	there it must be numeric.  */
+    return NULL;
+  else if (major > 10 && *end == '\0')
+    /* We will rewrite 11 =>  11.0.0.  */
+    need_rewrite = true;
+  else if (major == 10 && (*end == '\0' || !ISDIGIT (version_str[0])))
+    /* Otherwise, minor version components must be present and numeric.  */
     return NULL;
 
   /* If we have one or more leading zeros on a component, then rewrite the
@@ -144,10 +153,24 @@ darwin_find_version_from_kernel (void)
     major_vers = major_vers * 10 + (*version_p++ - '0');
   if (*version_p++ != '.')
     goto parse_failed;
-  
-  /* The major kernel version number is 4 plus the second OS version
-     component.  */
-  if (major_vers - 4 <= 4)
+
+  /* Darwin20 sees a transition to macOS 11.  In this, it seems that the
+     mapping to macOS minor version is now shifted to the kernel minor
+     version - 1 (at least for the initial releases).  At this stage, we
+     don't know what macOS version will correspond to Darwin21.  */
+  if (major_vers >= 20)
+    {
+      int minor_vers = *version_p++ - '0';
+      if (ISDIGIT (*version_p))
+	minor_vers = minor_vers * 10 + (*version_p++ - '0');
+      if (*version_p++ != '.')
+	goto parse_failed;
+      if (minor_vers > 0)
+	minor_vers -= 1; /* Kernel 20.3 => macOS 11.2.  */
+      /* It's not yet clear whether patch level will be considered.  */
+      asprintf (&new_flag, "%d.%02d.00", major_vers - 9, minor_vers);
+    }
+  else if (major_vers - 4 <= 4)
     /* On 10.4 and earlier, the old linker is used which does not
        support three-component system versions.
        FIXME: we should not assume this - a newer linker could be used.  */
