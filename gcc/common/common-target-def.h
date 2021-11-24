@@ -18,3 +18,14 @@
 #include "common/common-target-hooks-def.h"
 #include "hooks.h"
 #include "common/common-targhooks.h"
+
+const char *
+default_compute_multilib(
+  const struct switchstr *,
+  int,
+  const char *multilib,
+  const char *,
+  const char *,
+  const char *,
+  const char *,
+  const char *); 
